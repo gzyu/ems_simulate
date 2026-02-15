@@ -20,7 +20,7 @@ export default defineConfig({
         // 导航栏
         nav: [
             { text: '首页', link: '/' },
-            { text: '快速开始', link: '/guide/getting-started' },
+            { text: '快速开始', link: '/guide/install/getting-started' },
             { text: 'API 参考', link: '/api/overview' },
             { text: 'GitHub', link: 'https://github.com/600888/ems_simulate' }
         ],
@@ -29,27 +29,46 @@ export default defineConfig({
         sidebar: {
             '/guide/': [
                 {
-                    text: '指南',
+                    text: '安装部署',
+                    collapsed: false,
                     items: [
-                        { text: '快速开始', link: '/guide/getting-started' },
-                        { text: '安装部署', link: '/guide/installation' },
-                        { text: 'Debian 打包与部署', link: '/guide/packaging_deb' },
-                        { text: '配置说明', link: '/guide/configuration' },
-                        { text: '用户使用手册', link: '/guide/user-manual' }
+                        { text: '快速开始', link: '/guide/install/getting-started' },
+                        { text: '安装指南', link: '/guide/install/installation' },
+                        { text: '配置说明', link: '/guide/install/configuration' },
+                        { text: 'Debian 打包与部署', link: '/guide/install/packaging_deb' },
                     ]
                 },
                 {
-                    text: '核心概念',
+                    text: '设备模块',
+                    collapsed: false,
                     items: [
-                        { text: '测点类型', link: '/guide/point-types' },
-                        { text: '协议支持', link: '/guide/protocols' },
-                        { text: '解析码系统', link: '/guide/decode-system' }
+                        { text: '协议支持', link: '/guide/device/protocols' }
+                    ]
+                },
+                {
+                    text: '测点模块',
+                    collapsed: false,
+                    items: [
+                        { text: '测点类型', link: '/guide/point/point-types' },
+                        { text: '测点增删改查', link: '/guide/point/crud' },
+                        { text: '测点模拟', link: '/guide/point/simulation' },
+                        { text: '测点映射', link: '/guide/point/mapping' },
+                        { text: '公式使用', link: '/guide/point/formula' },
+                        { text: '寄存器解析', link: '/guide/point/register-parsing' }
+                    ]
+                },
+                {
+                    text: '操作手册',
+                    collapsed: false,
+                    items: [
+                        { text: '用户使用手册', link: '/guide/manual/user-manual' }
                     ]
                 }
             ],
             '/api/': [
                 {
                     text: 'API 参考',
+                    collapsed: false,
                     items: [
                         { text: '概述', link: '/api/overview' },
                         { text: '设备管理', link: '/api/device' },
@@ -101,6 +120,7 @@ export default defineConfig({
 
     // Markdown 配置
     markdown: {
-        lineNumbers: true
+        lineNumbers: true,
+        math: true
     }
 })

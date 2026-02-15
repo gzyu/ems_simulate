@@ -11,7 +11,7 @@ hero:
   actions:
     - theme: brand
       text: 快速开始 →
-      link: /guide/getting-started
+      link: /guide/install/getting-started
     - theme: alt
       text: 在 GitHub 上查看
       link: https://github.com/600888/ems_simulate

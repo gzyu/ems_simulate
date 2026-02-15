@@ -28,3 +28,46 @@
 .VPSidebarItem .link:hover .text {
     color: var(--vp-c-brand-1);
 }
+
+/* 侧边栏交互效果优化 */
+.VPSidebarItem>.item {
+    transition: background-color 0.25s;
+    border-radius: 8px;
+    margin-right: 8px;
+    /* 侧边栏右侧留白 */
+    padding: 2px 0;
+    /* 微调内边距 */
+}
+
+/* 悬停效果：整个块背景变色，文字不动 */
+.VPSidebarItem>.item:hover {
+    background-color: var(--vp-c-bg-soft);
+}
+
+/* 选中效果：整个块高亮，文字颜色不变 */
+.VPSidebarItem.is-active>.item {
+    background-color: var(--vp-c-bg-soft);
+}
+
+/* 强制选中时文字颜色与普通文字一致 */
+.VPSidebarItem.is-active>.item>.link>.text {
+    color: var(--vp-c-text-1) !important;
+}
+
+/* 清除 link 上的干扰样式 */
+.VPSidebarItem .link {
+    transition: none;
+    margin-right: 0;
+    /* margin 移到 item 上 */
+}
+
+.VPSidebarItem>.item>.link:hover {
+    transform: none;
+    background-color: transparent;
+}
+
+/* 侧边栏分组标题样式优化 */
+.VPSidebarItem.level-0 .text {
+    font-weight: 700;
+    color: var(--vp-c-text-1);
+}

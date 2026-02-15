@@ -75,4 +75,4 @@ ems_simulate/
 
 - [安装部署](./installation.md) - 详细的生产环境部署指南
 - [配置说明](./configuration.md) - 了解配置选项
-- [测点类型](./point-types.md) - 了解四种测点类型
+- [测点类型](../manual/point-types.md) - 了解四种测点类型

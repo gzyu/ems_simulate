@@ -65,7 +65,6 @@ declare module 'vue' {
     LongRegister: typeof import('./src/components/register/LongRegister.vue')['default']
     MessageViewDialog: typeof import('./src/components/device/MessageViewDialog.vue')['default']
     PointMappingConfig: typeof import('./src/components/point/PointMappingConfig.vue')['default']
-    PointMappingTab: typeof import('./src/components/device/PointMappingTab.vue')['default']
     PointSimulate: typeof import('./src/components/point/PointSimulate.vue')['default']
     PointSimulator: typeof import('./src/components/point/PointSimulator.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
@@ -79,8 +78,5 @@ declare module 'vue' {
     Table: typeof import('./src/components/device/Table.vue')['default']
     TextNode: typeof import('./src/components/common/TextNode.vue')['default']
     WritePointDialog: typeof import('./src/components/device/WritePointDialog.vue')['default']
-  }
-  export interface GlobalDirectives {
-    vLoading: typeof import('element-plus/es')['ElLoadingDirective']
   }
 }
