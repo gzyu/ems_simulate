@@ -23,7 +23,7 @@
 |------|------|
 | **前端** | Vue 3, TypeScript, Vite, Element Plus |
 | **后端** | Python 3.11+, FastAPI, SQLAlchemy |
-| **协议** | pymodbus 3.6+, c104, dlt645 |
+| **协议** | pymodbus 3.12, c104, dlt645 |
 | **数据库** | SQLite (默认) / MySQL |
 
 ## 界面展示
