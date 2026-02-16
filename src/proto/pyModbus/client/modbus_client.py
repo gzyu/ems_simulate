@@ -3,8 +3,8 @@ from typing import List, Optional, Union
 from pymodbus.client import ModbusTcpClient, ModbusSerialClient
 from pymodbus.exceptions import ModbusException
 from src.enums.modbus_register import Decode, DecodeType
-from pymodbus.framer import Framer
-from pymodbus.pdu import ModbusRequest
+
+# from pymodbus.pdu import ModbusRequest
 from datetime import datetime
 from src.enums.modbus_def import ProtocolType
 from src.device.core.message.message_capture import MessageCapture

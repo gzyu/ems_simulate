@@ -1,5 +1,5 @@
 pyinstaller==6.18.0
-pymodbus==3.6.2
+pymodbus==3.12.0
 pyserial==3.5
 pylint==1.4.3
 blinker==1.9.0

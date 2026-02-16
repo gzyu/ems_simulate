@@ -13,11 +13,20 @@ from src.device.core.message.message_capture import MessageCapture
 from src.enums.modbus_register import Decode
 
 # 导入所有需要的 PDU 类
-from pymodbus.bit_read_message import ReadCoilsRequest, ReadDiscreteInputsRequest
-from pymodbus.bit_write_message import WriteSingleCoilRequest, WriteMultipleCoilsRequest
-from pymodbus.register_read_message import ReadHoldingRegistersRequest, ReadInputRegistersRequest
-from pymodbus.register_write_message import WriteSingleRegisterRequest, WriteMultipleRegistersRequest
-from pymodbus.pdu import ModbusRequest, ModbusResponse
+from pymodbus.pdu.bit_message import (
+    ReadCoilsRequest, 
+    ReadDiscreteInputsRequest,
+    WriteSingleCoilRequest, 
+    WriteMultipleCoilsRequest
+)
+from pymodbus.pdu.register_message import (
+    ReadHoldingRegistersRequest, 
+    ReadInputRegistersRequest,
+    WriteSingleRegisterRequest, 
+    WriteMultipleRegistersRequest
+)
+from pymodbus.pdu import ModbusPDU as ModbusRequest
+from pymodbus.pdu import ModbusPDU as ModbusResponse
 
 
 class AsyncModbusClient:
@@ -104,7 +113,7 @@ class AsyncModbusClient:
             transaction_id = 0
             protocol_id = 0x0000
             length = len(pdu) + 1  # PDU长度 + 从机ID
-            unit_id = request.slave_id
+            unit_id = request.dev_id
 
             mbap_header = bytearray([
                 (transaction_id >> 8) & 0xFF,
@@ -135,7 +144,7 @@ class AsyncModbusClient:
                 transaction_id = 0
                 protocol_id = 0x0000
                 length = len(response_pdu) + 1
-                unit_id = request.slave_id
+                unit_id = request.dev_id
 
                 response_mbap_header = bytearray([
                     (transaction_id >> 8) & 0xFF,
@@ -164,10 +173,10 @@ class AsyncModbusClient:
             return []
 
         try:
-            request = ReadHoldingRegistersRequest(address, count, slave=slave_id)
+            request = ReadHoldingRegistersRequest(address=address, count=count, dev_id=slave_id)
             self._capture_request(request)
             
-            response = await self.client.execute(request)
+            response = await self.client.execute(False, request)
             
             self._capture_response(response, request)
 
@@ -190,10 +199,10 @@ class AsyncModbusClient:
             return []
 
         try:
-            request = ReadInputRegistersRequest(address, count, slave=slave_id)
+            request = ReadInputRegistersRequest(address=address, count=count, dev_id=slave_id)
             self._capture_request(request)
 
-            response = await self.client.execute(request)
+            response = await self.client.execute(False, request)
             
             self._capture_response(response, request)
 
@@ -213,10 +222,10 @@ class AsyncModbusClient:
             return []
 
         try:
-            request = ReadCoilsRequest(address, count, slave=slave_id)
+            request = ReadCoilsRequest(address=address, count=count, dev_id=slave_id)
             self._capture_request(request)
 
-            response = await self.client.execute(request)
+            response = await self.client.execute(False, request)
             
             self._capture_response(response, request)
 
@@ -236,10 +245,10 @@ class AsyncModbusClient:
             return []
 
         try:
-            request = ReadDiscreteInputsRequest(address, count, slave=slave_id)
+            request = ReadDiscreteInputsRequest(address=address, count=count, dev_id=slave_id)
             self._capture_request(request)
 
-            response = await self.client.execute(request)
+            response = await self.client.execute(False, request)
             
             self._capture_response(response, request)
 
@@ -259,10 +268,12 @@ class AsyncModbusClient:
             return False
 
         try:
-            request = WriteSingleRegisterRequest(address, value, slave=slave_id)
+            # WriteSingleRegisterRequest inherits ModbusPDU via WriteSingleRegisterResponse
+            # ModbusPDU init takes 'registers' list, not 'value'
+            request = WriteSingleRegisterRequest(address=address, registers=[value], dev_id=slave_id)
             self._capture_request(request)
 
-            response = await self.client.execute(request)
+            response = await self.client.execute(False, request)
             
             self._capture_response(response, request)
 
@@ -280,10 +291,10 @@ class AsyncModbusClient:
             return False
 
         try:
-            request = WriteMultipleRegistersRequest(address, values, slave=slave_id)
+            request = WriteMultipleRegistersRequest(address=address, registers=values, dev_id=slave_id)
             self._capture_request(request)
 
-            response = await self.client.execute(request)
+            response = await self.client.execute(False, request)
             
             self._capture_response(response, request)
 
@@ -301,10 +312,11 @@ class AsyncModbusClient:
             return False
             
         try:
-            request = WriteSingleCoilRequest(address, value, slave=slave_id)
+            # WriteSingleCoilRequest uses 'bits' list in ModbusPDU
+            request = WriteSingleCoilRequest(address=address, bits=[value], dev_id=slave_id)
             self._capture_request(request)
 
-            response = await self.client.execute(request)
+            response = await self.client.execute(False, request)
             
             self._capture_response(response, request)
 
@@ -322,10 +334,10 @@ class AsyncModbusClient:
             return False
 
         try:
-            request = WriteMultipleCoilsRequest(address, values, slave=slave_id)
+            request = WriteMultipleCoilsRequest(address=address, bits=values, dev_id=slave_id)
             self._capture_request(request)
 
-            response = await self.client.execute(request)
+            response = await self.client.execute(False, request)
             
             self._capture_response(response, request)
 

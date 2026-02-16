@@ -7,10 +7,13 @@ from pymodbus import __version__ as pymodbus_version
 from pymodbus.datastore import (
     ModbusSequentialDataBlock,
     ModbusServerContext,
-    ModbusSlaveContext,
+    ModbusDeviceContext,
     ModbusSparseDataBlock,
 )
-from pymodbus.device import ModbusDeviceIdentification
+# Alias for backward compatibility
+ModbusSlaveContext = ModbusDeviceContext
+
+from pymodbus.pdu.device import ModbusDeviceIdentification
 from pymodbus.server import (
     ModbusTcpServer,
     ModbusUdpServer,
@@ -21,8 +24,7 @@ from pymodbus.server import (
     StartAsyncSerialServer,
     StartAsyncTlsServer,
 )
-from pymodbus.framer import ModbusRtuFramer
-from pymodbus.server.async_io import ModbusServerRequestHandler
+from pymodbus.framer import FramerRTU, FRAMER_NAME_TO_CLASS
 
 from src.enums.modbus_register import Decode, DecodeType
 from src.proto.pyModbus import helper
@@ -72,7 +74,7 @@ class ModbusServer:
         
         # 创建从站上下文
         self.slaves = {
-            slave_id: ModbusSlaveContext(
+            slave_id: ModbusDeviceContext(
                 di=ModbusSequentialDataBlock(
                     0, [0] * 65535
                 ),  # Discrete Inputs 初始化为 0
@@ -84,7 +86,7 @@ class ModbusServer:
             )  # Input Registers 初始化为 0
             for slave_id in self._slave_id_list
         }
-        self.context = ModbusServerContext(slaves=self.slaves, single=False)
+        self.context = ModbusServerContext(devices=self.slaves, single=False)
 
     def setServerAddress(self, address):
         self.ip = address
@@ -151,7 +153,7 @@ class ModbusServer:
                 single = True
 
             # Build data storage
-            args.context = ModbusServerContext(slaves=context, single=single)
+            args.context = ModbusServerContext(devices=context, single=single)
 
         args.identity = ModbusDeviceIdentification(
             info_name={
@@ -200,10 +202,12 @@ class ModbusServer:
                 
                 # 使用自定义 Frmaer
                 framer_cls = CreateCaptureSocketFramer(self.message_capture)
+                framer_key = f"CAPTURE_SOCKET_{id(self)}"
+                FRAMER_NAME_TO_CLASS[framer_key] = framer_cls
                 
                 self.server = ModbusTcpServer(
                     address=address,  # listen address
-                    framer=framer_cls,
+                    framer=framer_key,
                     **common_params,
                 )
             elif self.protocol_type == ProtocolType.ModbusRtuOverTcp:
@@ -213,10 +217,12 @@ class ModbusServer:
                 )
                 
                 framer_cls = CreateCaptureRtuFramer(self.message_capture)
+                framer_key = f"CAPTURE_RTU_OVER_TCP_{id(self)}"
+                FRAMER_NAME_TO_CLASS[framer_key] = framer_cls
                 
                 self.server = ModbusTcpServer(
                     address=address,  # listen address
-                    framer=framer_cls,  # The framer strategy to use
+                    framer=framer_key,  # The framer strategy to use
                     **common_params,
                 )
             elif self.protocol_type == ProtocolType.ModbusUdp:
@@ -226,10 +232,12 @@ class ModbusServer:
                 )
                 
                 framer_cls = CreateCaptureSocketFramer(self.message_capture)
+                framer_key = f"CAPTURE_UDP_{id(self)}"
+                FRAMER_NAME_TO_CLASS[framer_key] = framer_cls
                 
                 self.server = ModbusUdpServer(
                     address=address,  # listen address
-                    framer=framer_cls,
+                    framer=framer_key,
                     **common_params,
                 )
             elif self.protocol_type == ProtocolType.ModbusRtu:
@@ -243,9 +251,11 @@ class ModbusServer:
                 self._logger.info(f"启动 Modbus RTU 服务器: {serial_params}")
                 
                 framer_cls = CreateCaptureRtuFramer(self.message_capture)
+                framer_key = f"CAPTURE_RTU_{id(self)}"
+                FRAMER_NAME_TO_CLASS[framer_key] = framer_cls
                 
                 self.server = ModbusSerialServer(
-                    framer=framer_cls,
+                    framer=framer_key,
                     **common_params,
                     **serial_params,
                 )
@@ -271,7 +281,7 @@ class ModbusServer:
                 self._logger.error(f"无法初始化服务器: {self.protocol_type}")
         except Exception as e:
             self._logger.error(f"运行 Modbus 服务器失败 ({self.protocol_type}): {e}")
-            raise e
+            raise
 
     async def initServer(self):
         runArgs = self.setUpServer(

@@ -49,8 +49,9 @@ class MessageCapture:
         # 平均收发时间统计：追踪 TX→RX 配对的延迟
         self._tx_count: int = 0
         self._rx_count: int = 0
-        self._pending_tx_time: float = 0.0   # 最近一次 TX 的时间戳，等待配对 RX
-        self._pair_count: int = 0             # 已配对的 TX→RX 次数
+        self._pending_tx_time: float = 0.0   # 最近一次 TX 的时间戳，等待配对 RX (客户端模式)
+        self._pending_rx_time: float = 0.0   # 最近一次 RX 的时间戳，等待配对 TX (服务端模式)
+        self._pair_count: int = 0             # 已配对的 TX→RX / RX→TX 次数
         self._total_latency: float = 0.0      # 所有配对延迟的累计（秒）
 
     def enable(self):
@@ -67,9 +68,18 @@ class MessageCapture:
         """添加发送报文"""
         if not self._enabled: return
         with self._lock:
+            now = time.time()
             self._tx_count += 1
-            # 记录 TX 时间，等待下一个 RX 配对
-            self._pending_tx_time = time.time()
+            
+            # 服务端模式：如果刚才收到了 RX，现在发送 TX，则是响应
+            if self._pending_rx_time > 0:
+                latency = now - self._pending_rx_time
+                self._total_latency += latency
+                self._pair_count += 1
+                self._pending_rx_time = 0.0
+            else:
+                # 客户端模式：发送 TX，等待 RX
+                self._pending_tx_time = now
 
             seq = self._get_next_sequence()
             self._queue.append(MessageRecord("TX", data, seq))
@@ -81,12 +91,15 @@ class MessageCapture:
             now = time.time()
             self._rx_count += 1
 
-            # 如果有待配对的 TX，计算本次收发延迟
+            # 客户端模式：如果刚才发送了 TX，现在收到 RX，则是响应
             if self._pending_tx_time > 0:
                 latency = now - self._pending_tx_time
                 self._total_latency += latency
                 self._pair_count += 1
-                self._pending_tx_time = 0.0  # 清除，避免重复配对
+                self._pending_tx_time = 0.0
+            else:
+                 # 服务端模式：收到 RX，等待 TX
+                self._pending_rx_time = now
 
             seq = self._get_next_sequence()
             self._queue.append(MessageRecord("RX", data, seq))
@@ -130,5 +143,6 @@ class MessageCapture:
             self._tx_count = 0
             self._rx_count = 0
             self._pending_tx_time = 0.0
+            self._pending_rx_time = 0.0
             self._pair_count = 0
             self._total_latency = 0.0

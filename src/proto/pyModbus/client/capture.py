@@ -1,7 +1,7 @@
 import struct
 from pymodbus.client import ModbusTcpClient, ModbusSerialClient
-from pymodbus.framer import Framer, ModbusRtuFramer
-from pymodbus.pdu import ModbusRequest
+from pymodbus.framer import FramerType
+from pymodbus.pdu.pdu import ModbusPDU
 from src.device.core.message.message_capture import MessageCapture
 
 def computeCRC(data):
@@ -19,10 +19,10 @@ def computeCRC(data):
 
 class ModbusTcpClientWithCapture(ModbusTcpClient):
     def __init__(self, host: str, port: int = 502, message_capture=None, **kwargs):
-        super().__init__(host=host, port=port, framer=Framer.SOCKET, **kwargs)
+        super().__init__(host=host, port=port, framer=FramerType.SOCKET, **kwargs)
         self.message_capture = message_capture
 
-    def execute(self, request: ModbusRequest):
+    def execute(self, request: ModbusPDU):
         # 构造PDU（功能码 + 数据）
         try:
             pdu = bytes([request.function_code]) + request.encode()
@@ -33,7 +33,7 @@ class ModbusTcpClientWithCapture(ModbusTcpClient):
             transaction_id = 0 
             protocol_id = 0x0000
             length = len(pdu) + 1  # PDU长度 + 从机ID
-            unit_id = request.slave_id
+            unit_id = request.dev_id
 
             mbap_header = bytearray([
                 (transaction_id >> 8) & 0xFF,
@@ -80,14 +80,14 @@ class ModbusTcpClientWithCapture(ModbusTcpClient):
 
 class ModbusSerialClientWithCapture(ModbusSerialClient):
     def __init__(self, port, baudrate, bytesize, parity, stopbits, message_capture=None):
-        super().__init__(port=port, baudrate=baudrate, bytesize=bytesize, parity=parity, stopbits=stopbits, framer=ModbusRtuFramer)
+        super().__init__(port=port, baudrate=baudrate, bytesize=bytesize, parity=parity, stopbits=stopbits, framer=FramerType.RTU)
         self.message_capture = message_capture
 
-    def execute(self, request: ModbusRequest):
+    def execute(self, request: ModbusPDU):
         # 构造 RTU 报文: Slave ID + PDU + CRC
         try:
             pdu = bytes([request.function_code]) + request.encode()
-            unit_id = request.slave_id
+            unit_id = request.dev_id
             
             # Slave + PDU
             pre_crc = bytes([unit_id]) + pdu
@@ -129,14 +129,14 @@ class ModbusSerialClientWithCapture(ModbusSerialClient):
 
 class ModbusRtuOverTcpClientWithCapture(ModbusTcpClient):
     def __init__(self, host: str, port: int = 502, message_capture=None):
-        super().__init__(host=host, port=port, framer=ModbusRtuFramer)
+        super().__init__(host=host, port=port, framer=FramerType.RTU)
         self.message_capture = message_capture
 
-    def execute(self, request: ModbusRequest):
+    def execute(self, request: ModbusPDU):
         # 构造 RTU Over TCP 报文 (同 RTU)
         try:
             pdu = bytes([request.function_code]) + request.encode()
-            unit_id = request.slave_id
+            unit_id = request.dev_id
             
             pre_crc = bytes([unit_id]) + pdu
             
