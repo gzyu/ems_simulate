@@ -42,6 +42,13 @@ class ModbusMessageParser:
     """
 
     @staticmethod
+    def _format_addr_range(start: int, end: int) -> str:
+        """格式化地址范围，地址相同时只显示单个地址"""
+        if start == end:
+            return f"0x{start:04X}"
+        return f"0x{start:04X}-0x{end:04X}"
+
+    @staticmethod
     def parse_tcp(raw_hex: str, last_request_info: Optional[dict] = None) -> str:
         """解析 Modbus TCP 报文
         
@@ -131,14 +138,16 @@ class ModbusMessageParser:
                 start_addr = (pdu[1] << 8) | pdu[2]
                 quantity = (pdu[3] << 8) | pdu[4]
                 end_addr = start_addr + quantity - 1
-                return f"{fc_name} 0x{start_addr:04X}-0x{end_addr:04X} (从站 {slave_id})"
+                addr_range = ModbusMessageParser._format_addr_range(start_addr, end_addr)
+                return f"{fc_name} {addr_range} (从站 {slave_id})"
             else:
                 # 这是一个响应: FC(1) + ByteCount(1) + Data(N)
                 # 需要关联请求来获取地址范围
                 if last_request_info and last_request_info.get("func_code") == func_code:
                     start = last_request_info["start_addr"]
                     end = last_request_info["end_addr"]
-                    return f"{fc_name} 0x{start:04X}-0x{end:04X} 响应 (从站 {slave_id})"
+                    addr_range = ModbusMessageParser._format_addr_range(start, end)
+                    return f"{fc_name} {addr_range} 响应 (从站 {slave_id})"
                 else:
                     # 无法关联请求，使用字节数描述
                     if len(pdu) >= 2:
@@ -179,11 +188,13 @@ class ModbusMessageParser:
                 # 请求: 有 ByteCount + Data (len > 5)
                 # 响应: 只有 StartAddr + Quantity (len == 5)
                 if len(pdu) == 5:
-                    # 这是响应
-                    return f"{fc_name} 0x{start_addr:04X}-0x{end_addr:04X} 响应 (从站 {slave_id})"
+                    # 响应
+                    addr_range = ModbusMessageParser._format_addr_range(start_addr, end_addr)
+                    return f"{fc_name} {addr_range} 响应 (从站 {slave_id})"
                 else:
-                    # 这是请求
-                    return f"{fc_name} 0x{start_addr:04X}-0x{end_addr:04X} (从站 {slave_id})"
+                    # 请求
+                    addr_range = ModbusMessageParser._format_addr_range(start_addr, end_addr)
+                    return f"{fc_name} {addr_range} (从站 {slave_id})"
             return f"{fc_name} (从站 {slave_id})"
 
         return f"{fc_name} (从站 {slave_id})"
