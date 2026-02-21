@@ -450,9 +450,7 @@ class AsyncModbusClient:
             else:
                 return await self.write_registers(slave_id, address, registers)
         else:
-            if self.log:
-                self.log.error(f"Unsupported function code for writing: {func_code}")
-            return False
+            raise ValueError(f"不支持写入的功能码: {func_code}，该测点为只读类型")
 
     def getCapturedMessages(self, limit: int = 100):
         """获取捕获的报文"""

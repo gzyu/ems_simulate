@@ -127,9 +127,12 @@ import {
 interface Props {
   deviceName: string;
   pointCode: string;
+  active?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  active: true
+});
 const emit = defineEmits(['update-success']);
 
 const simulateOptions = ref([
@@ -158,6 +161,20 @@ const showSpecialParams = ref(false);
 // 监听模拟方法变化，显示/隐藏特殊参数
 watch(() => simulateForm.simulateMethod, (newMethod) => {
   showSpecialParams.value = ['SineWave', 'Ramp', 'Pulse'].includes(newMethod);
+});
+
+// 监听激活状态，激活时加载数据
+watch(() => props.active, (newVal) => {
+  if (newVal) {
+    loadPointInfo();
+  }
+}, { immediate: true });
+
+// 监听测点或设备变化，如果处于激活状态则重新加载数据
+watch([() => props.deviceName, () => props.pointCode], () => {
+  if (props.active) {
+    loadPointInfo();
+  }
 });
 
 // 加载点信息

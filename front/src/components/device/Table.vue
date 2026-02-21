@@ -44,13 +44,14 @@
                     :realValue="parseFloat(scope.row['真实值'] || 0)"
                     @editSuccess="updatePointData"
                   />
-                  <EditPointLimit :deviceName="deviceName" :pointCode="scope.row['测点编码']" />
+                  <EditPointLimit :deviceName="deviceName" :pointCode="scope.row['测点编码']" :active="activeName === '数据解析和设置'" />
                 </div>
               </el-tab-pane>
               <el-tab-pane label="属性编辑" name="测点编辑">
                 <EditPointMetadata
                   :deviceName="deviceName"
                   :pointCode="scope.row['测点编码']"
+                  :active="activeName === '测点编辑'"
                   @update-success="(newCode) => handleMetadataUpdate(newCode, scope.row['测点编码'])"
                 />
               </el-tab-pane>
@@ -59,6 +60,7 @@
                 <PointMappingConfig
                   :deviceName="deviceName"
                   :targetPointCode="scope.row['测点编码']"
+                  :active="activeName === '测点映射'"
                 />
               </el-tab-pane>
 
@@ -71,7 +73,16 @@
                 <PointSimulator
                   :deviceName="deviceName"
                   :pointCode="scope.row['测点编码']"
+                  :active="activeName === '数据模拟'"
                   @update-success="handlePointSimulatorUpdate"
+                />
+              </el-tab-pane>
+
+              <el-tab-pane label="变化回溯" name="变化回溯">
+                <PointChangeHistory
+                  :deviceName="deviceName"
+                  :pointCode="scope.row['测点编码']"
+                  :active="activeName === '变化回溯'"
                 />
               </el-tab-pane>
             </el-tabs>
@@ -238,6 +249,7 @@ import EditPointLimit from '../point/EditPointLimit.vue'
 import PointSimulator from '../point/PointSimulator.vue'
 import EditPointMetadata from '../point/EditPointMetadata.vue'
 import PointMappingConfig from '../point/PointMappingConfig.vue'
+import PointChangeHistory from '../point/PointChangeHistory.vue'
 import WritePointDialog from './WritePointDialog.vue'
 
 const props = defineProps({

@@ -98,9 +98,11 @@ class Yk(BasePoint):
         if not self._is_updating and value != self._value:
             self._is_updating = True
             try:
+                old_value = self._value
                 self._value = value
                 if isinstance(self.value, int):
                     self.hex_value = decimal_to_hex_formatted(value)
+                self._record_change(old_value, value)
                 if self.is_send_signal:
                     self.value_changed.send(
                         old_point=self, related_point=self.related_point

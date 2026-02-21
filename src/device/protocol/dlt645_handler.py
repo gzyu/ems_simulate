@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from src.device.protocol.base_handler import ServerHandler, ClientHandler
 from src.enums.point_data import Yc
+from src.enums.points.change_tracker import ChangeSource, track_change
 from src.config.config import Config
 from src.enums.points.base_point import BasePoint
 
@@ -164,7 +165,6 @@ class DLT645ServerHandler(ServerHandler):
     ) -> None:
         """根据地址设置值"""
         if self._server:
-            # address 是 int，转为 hex 字符串查看前缀以分发方法
             hex_addr = hex(address)[2:].zfill(8)
             prefix = hex_addr[:2]
             

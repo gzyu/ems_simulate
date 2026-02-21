@@ -97,11 +97,9 @@ const handleSubmit = async () => {
       ElMessage.success('写入指令已发送');
       visible.value = false;
       emit('success');
-    } else {
-      ElMessage.error('写入失败');
     }
   } catch (e) {
-    ElMessage.error('操作发生错误');
+    console.error('Submit failed:', e);
   } finally {
     loading.value = false;
   }

@@ -116,11 +116,9 @@ const handleSubmit = async () => {
             ElMessage.success('编辑从机成功');
             emit('success', formData.new_slave_id);
             handleClose();
-        } else {
-             ElMessage.error('编辑失败：请检查后台日志或稍后重试');
         }
     } catch (error) {
-        console.error('表单验证失败:', error);
+        console.error('编辑从机失败:', error);
     } finally {
         loading.value = false;
     }

@@ -17,7 +17,8 @@ from src.web.schemas.schemas import (
     DeviceStartRequest, DeviceStopRequest, DeviceResetRequest,
     MessageListRequest, PointCreateRequest, PointDeleteRequest, SlaveAddRequest, SlaveDeleteRequest,
     SlaveEditRequest,
-    ClearPointsRequest, PointsBatchCreateRequest, CurrentTableRequest, PointLimitGetRequest
+    ClearPointsRequest, PointsBatchCreateRequest, CurrentTableRequest, PointLimitGetRequest,
+    PointChangeHistoryRequest, ChangeTrackingConfigRequest,
 )
 from src.data.dao.channel_dao import ChannelDao
 
@@ -160,7 +161,18 @@ async def get_current_table(req: CurrentTableRequest = Depends(), request: Reque
 async def edit_point_data(req: PointEditDataRequest, request: Request):
     try:
         device = get_device(req.device_name, request)
-        success = await device.edit_point_data_async(req.point_code, req.point_value)
+        # 获取服务端本地地址作为变更来源信息
+        from src.enums.modbus_def import ProtocolType
+        if device.protocol_type in (ProtocolType.ModbusRtu, ProtocolType.ModbusRtuOverTcp):
+            client_info = device.serial_port or "未知串口"
+        else:
+            client_info = f"{device.ip}:{device.port}"
+        from src.enums.points.change_tracker import change_client_info_ctx
+        token = change_client_info_ctx.set(client_info)
+        try:
+            success = await device.edit_point_data_async(req.point_code, req.point_value)
+        finally:
+            change_client_info_ctx.reset(token)
         return BaseResponse(
             message="编辑测点数据成功!" if success else "编辑测点数据失败!",
             data=success
@@ -621,3 +633,87 @@ async def clear_points(req: ClearPointsRequest, request: Request):
     except Exception as e:
         log.error(f"清空测点失败: {e}")
         return BaseResponse(code=500, message=f"清空测点失败: {e}!", data=0)
+
+
+# ===== 变更追溯接口 =====
+
+@device_router.post("/get_point_change_history", response_model=BaseResponse)
+async def get_point_change_history(req: PointChangeHistoryRequest, request: Request):
+    """获取测点变更历史"""
+    try:
+        device = get_device(req.device_name, request)
+        point = device.point_manager.get_point_by_code(req.point_code)
+        if not point:
+            return BaseResponse(code=404, message=f"测点 {req.point_code} 不存在!", data=[])
+
+        history = [record.to_dict() for record in reversed(point.change_history)]
+        return BaseResponse(
+            message="获取变更历史成功!",
+            data={
+                "point_code": req.point_code,
+                "tracking_enabled": point.change_tracking_enabled,
+                "maxlen": getattr(point, '_change_history_maxlen', 50),
+                "history": history,
+                "count": len(history),
+            },
+        )
+    except KeyError:
+        return BaseResponse(code=404, message=f"设备 {req.device_name} 不存在!", data=[])
+    except Exception as e:
+        log.error(f"获取变更历史失败: {e}")
+        return BaseResponse(code=500, message=f"获取变更历史失败: {e}!", data=[])
+
+
+@device_router.post("/set_change_tracking", response_model=BaseResponse)
+async def set_change_tracking(req: ChangeTrackingConfigRequest, request: Request):
+    """设置测点的变更追溯开关和历史上限"""
+    try:
+        device = get_device(req.device_name, request)
+        
+        # 确定要操作的测点列表
+        points_to_update = []
+        if req.point_code:
+            point = device.point_manager.get_point_by_code(req.point_code)
+            if not point:
+                return BaseResponse(code=404, message=f"测点 {req.point_code} 不存在!", data=False)
+            points_to_update = [point]
+        else:
+            points_to_update = device.point_manager.get_all_points()
+
+        for point in points_to_update:
+            if req.enabled:
+                point.enable_change_tracking()
+            else:
+                point.disable_change_tracking()
+            if req.maxlen is not None:
+                point.set_change_history_maxlen(req.maxlen)
+
+        status = "启用" if req.enabled else "关闭"
+        target = f"测点 {req.point_code}" if req.point_code else f"设备 {req.device_name} 的所有测点"
+        msg = f"已{status}{target}的变更追溯"
+        if req.maxlen is not None:
+            msg += f"，历史上限设为 {min(max(1, req.maxlen), 100)} 条"
+        return BaseResponse(message=msg, data=True)
+    except KeyError:
+        return BaseResponse(code=404, message=f"设备 {req.device_name} 不存在!", data=False)
+    except Exception as e:
+        log.error(f"设置变更追溯失败: {e}")
+        return BaseResponse(code=500, message=f"设置变更追溯失败: {e}!", data=False)
+
+
+@device_router.post("/clear_point_change_history", response_model=BaseResponse)
+async def clear_point_change_history(req: PointChangeHistoryRequest, request: Request):
+    """清空测点变更历史"""
+    try:
+        device = get_device(req.device_name, request)
+        point = device.point_manager.get_point_by_code(req.point_code)
+        if not point:
+            return BaseResponse(code=404, message=f"测点 {req.point_code} 不存在!", data=False)
+
+        point.clear_change_history()
+        return BaseResponse(message="清空变更历史成功!", data=True)
+    except KeyError:
+        return BaseResponse(code=404, message=f"设备 {req.device_name} 不存在!", data=False)
+    except Exception as e:
+        log.error(f"清空变更历史失败: {e}")
+        return BaseResponse(code=500, message=f"清空变更历史失败: {e}!", data=False)

@@ -112,7 +112,8 @@ import { getPointTree, type DeviceNode } from '@/api/pointTreeApi';
 
 const props = defineProps({
   deviceName: { type: String, required: true },
-  targetPointCode: { type: String, required: true }
+  targetPointCode: { type: String, required: true },
+  active: { type: Boolean, default: true }
 });
 
 const emit = defineEmits(['update-success']);
@@ -344,18 +345,23 @@ const handleDeleteMapping = async () => {
     }
 };
 
-onMounted(() => {
-    fetchMapping();
-});
+watch(() => props.active, (newVal) => {
+    if (newVal) {
+        fetchMapping();
+    }
+}, { immediate: true });
 
-watch(() => props.targetPointCode, () => {
-    fetchMapping();
+watch([() => props.deviceName, () => props.targetPointCode], () => {
+    if (props.active) {
+        fetchMapping();
+    }
 });
 </script>
 
 <style scoped lang="scss">
 /* Container: Match SingleRegister.vue style */
 .point-mapping-config {
+    width: 95%;
     margin: 0;
     padding: 16px;
     background-color: var(--panel-bg, #fff); /* Keep var for dark mode, default white */

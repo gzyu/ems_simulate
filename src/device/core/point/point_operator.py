@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from src.enums.point_data import SimulateMethod, Yc, Yx, Yt, Yk, BasePoint
 from src.enums.modbus_def import ProtocolType
+from src.enums.points.change_tracker import ChangeSource, track_change
 from src.data.service.point_service import PointService
 
 if TYPE_CHECKING:
@@ -41,35 +42,68 @@ class PointOperator:
 
     # ===== 测点值读写 =====
 
-    def edit_value(self, point_code: str, real_value: float) -> bool:
-        """编辑测点值"""
+    def edit_value(
+        self, 
+        point_code: str, 
+        real_value: float, 
+        source: Optional[ChangeSource] = None,
+        detail: Optional[str] = None
+    ) -> bool:
+        """编辑测点值，失败时抛出异常以便上层返回具体原因"""
         point = self._pm.get_point_by_code(point_code)
         if not point:
-            self._log.error(f"{self._device.name} 未找到测点: {point_code}")
-            return False
+            raise ValueError(f"未找到测点: {point_code}")
 
-        if not point.set_real_value(real_value):
-            return False
+        # 如果未指定来源，默认使用 MANUAL
+        effective_source = source or ChangeSource.MANUAL
+        effective_detail = detail or f"手动设置 {point_code}={real_value}"
 
-        if self._handler:
-            return self._handler.write_value(point, point.value)
+        with track_change(effective_source, effective_detail):
+            if not point.set_real_value(real_value):
+                raise ValueError(f"测点 {point_code} 值 {real_value} 超出允许范围")
+
+            if self._handler:
+                try:
+                    result = self._handler.write_value(point, point.value)
+                except Exception as e:
+                    raise ValueError(f"测点 {point_code} 写入失败: {e}") from e
+                if not result:
+                    raise ValueError(f"测点 {point_code} 协议写入失败，请检查配置或物理连接")
+                return result
         return True
 
-    async def edit_value_async(self, point_code: str, real_value: float) -> bool:
-        """异步编辑测点值"""
+    async def edit_value_async(
+        self, 
+        point_code: str, 
+        real_value: float,
+        source: Optional[ChangeSource] = None,
+        detail: Optional[str] = None
+    ) -> bool:
+        """异步编辑测点值，失败时抛出异常以便上层返回具体原因"""
         point = self._pm.get_point_by_code(point_code)
         if not point:
-            self._log.error(f"{self._device.name} 未找到测点: {point_code}")
-            return False
+            raise ValueError(f"未找到测点: {point_code}")
 
-        if not point.set_real_value(real_value):
-            return False
+        # 如果未指定来源，默认使用 MANUAL
+        effective_source = source or ChangeSource.MANUAL
+        effective_detail = detail or f"手动设置 {point_code}={real_value}"
 
-        if self._handler:
-            if hasattr(self._handler, 'write_value_async'):
-                return await self._handler.write_value_async(point, point.value)
-            # 降级到同步方法（可能会阻塞）
-            return self._handler.write_value(point, point.value)
+        with track_change(effective_source, effective_detail):
+            if not point.set_real_value(real_value):
+                raise ValueError(f"测点 {point_code} 值 {real_value} 超出允许范围")
+
+            if self._handler:
+                try:
+                    if hasattr(self._handler, 'write_value_async'):
+                        result = await self._handler.write_value_async(point, point.value)
+                    else:
+                        result = self._handler.write_value(point, point.value)
+                except Exception as e:
+                    raise ValueError(f"测点 {point_code} 写入失败: {e}") from e
+                if not result:
+                    raise ValueError(f"测点 {point_code} 协议写入失败，请检查配置或物理连接")
+                return result
+
         return True
 
     def read_single_point(self, point_code: str) -> Optional[float]:
@@ -92,11 +126,14 @@ class PointOperator:
         try:
             value = self._handler.read_value(point)
             if value is not None:
-                point.value = value
+                with track_change(ChangeSource.CLIENT_READ, f"单点读取 {point_code}"):
+                    point.value = value
                 point.is_valid = True
+                self._log.info(f"读取测点 {point_code} 成功: {value}")
                 return point.real_value if hasattr(point, 'real_value') else float(value)
             else:
                 point.is_valid = False
+                self._log.info(f"读取测点 {point_code} 失败: {value}")
         except Exception as e:
             self._log.error(f"读取测点 {point_code} 失败: {e}")
             point.is_valid = False
@@ -123,11 +160,14 @@ class PointOperator:
         try:
             value = await self._handler.read_value_async(point)
             if value is not None:
-                point.value = value
+                with track_change(ChangeSource.CLIENT_READ, f"异步单点读取 {point_code}"):
+                    point.value = value
                 point.is_valid = True
+                self._log.info(f"异步读取测点 {point_code} 成功: {value}")
                 return point.real_value if hasattr(point, 'real_value') else float(value)
             else:
                 point.is_valid = False
+                self._log.info(f"异步读取测点 {point_code} 失败: {value}")
         except Exception as e:
             self._log.error(f"异步读取测点 {point_code} 失败: {e}")
             point.is_valid = False
@@ -140,7 +180,7 @@ class PointOperator:
         """编辑测点元数据"""
         point = self._pm.get_point_by_code(point_code)
         if not point:
-            return False
+            raise ValueError(f"未找到测点: {point_code}")
 
         # 记录是否需要重新同步值到协议处理器
         need_resync = False

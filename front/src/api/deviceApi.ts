@@ -1,5 +1,7 @@
 import { PointType, type PointLimit } from '@/types/point';
 import axios from 'axios';
+import { ElMessage } from 'element-plus';
+
 // const apiUrl = "http://127.0.0.1:8888";
 // 使用相对路径，Nginx会代理到正确的后端地址
 const API_BASE_URL = import.meta.env.VUE_APP_API_BASE || '/'; // Nginx会将/api代理到实际后端
@@ -12,27 +14,40 @@ export const instance = axios.create({
     }
 });
 
+// 添加响应拦截器
+instance.interceptors.response.use(
+    (response) => {
+        // 检查业务响应码
+        if (response.data && response.data.code !== 200) {
+            const errorMsg = response.data.message || '请求失败';
+            ElMessage.error(errorMsg);
+            return Promise.reject(new Error(errorMsg));
+        }
+        return response;
+    },
+    (error) => {
+        // 统一错误处理
+        let message = '网络请求失败';
+        if (axios.isAxiosError(error)) {
+            message = error.response?.data?.message || error.message;
+        } else if (error instanceof Error) {
+            message = error.message;
+        }
+        ElMessage.error(message);
+        return Promise.reject(error);
+    }
+);
+
 // 封装请求方法
 export const requestApi = async (url: string, method: string, data: any): Promise<any> => {
-    try {
-        const response = await instance.request({
-            url,
-            method,
-            data
-        });
-        // 检查业务响应码
-        if (response.data.code !== 200) {
-            throw new Error(response.data.message || '请求失败');
-        }
-        return response.data.data;
-    } catch (error) {
-        // 统一错误处理
-        if (axios.isAxiosError(error)) {
-            throw new Error(error.response?.data?.message || error.message);
-        }
-        throw error;
-    }
+    const response = await instance.request({
+        url,
+        method,
+        data
+    });
+    return response.data.data;
 }
+
 export async function getDeviceList(): Promise<Array<string>> {
     try {
         const data = await requestApi(`/device/get_device_list`, 'post', null);
@@ -143,17 +158,12 @@ export async function getDeviceTable(deviceName: string, slaveId: number, pointN
 }
 
 export async function editPointData(deviceName: string, pointCode: string, pointValue: number): Promise<boolean> {
-    try {
-        const data = await requestApi('/device/edit_point_data/', 'post', {
-            device_name: deviceName,
-            point_code: pointCode,
-            point_value: pointValue,
-        });
-        return data;
-    } catch (error) {
-        console.error('Error stop simulation:', error);
-        return false;
-    }
+    const data = await requestApi('/device/edit_point_data/', 'post', {
+        device_name: deviceName,
+        point_code: pointCode,
+        point_value: pointValue,
+    });
+    return data;
 }
 
 
@@ -167,8 +177,8 @@ export async function editPointLimit(deviceName: string, pointCode: string, minV
         });
         return data;
     } catch (error) {
-        console.error('Error stop simulation:', error);
-        return false;
+        console.error('Error editing point limit:', error);
+        throw error;
     }
 }
 
@@ -187,7 +197,7 @@ export async function getPointLimit(deviceName: string, pointCode: string): Prom
         pointLimit.maxValueLimit = data.max_value_limit;
         return pointLimit;
     } catch (error) {
-        console.error('Error stop simulation:', error);
+        console.error('Error getting point limit:', error);
         return pointLimit;
     }
 }
@@ -199,8 +209,8 @@ export async function resetPointData(deviceName: string): Promise<boolean> {
         });
         return data;
     } catch (error) {
-        console.error('Error stop simulation:', error);
-        return false;
+        console.error('Error resetting point data:', error);
+        throw error;
     }
 }
 
@@ -227,7 +237,7 @@ export async function setSinglePointSimulateMethod(deviceName: string, pointCode
         return data;
     } catch (error) {
         console.error('Error setting single point simulate method:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -241,7 +251,7 @@ export async function setSinglePointStep(deviceName: string, pointCode: string, 
         return data;
     } catch (error) {
         console.error('Error setting single point step:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -256,7 +266,7 @@ export async function setPointSimulationRange(deviceName: string, pointCode: str
         return data;
     } catch (error) {
         console.error('Error setting point simulation range:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -270,7 +280,7 @@ export async function editPointMetadata(deviceName: string, pointCode: string, m
         return data;
     } catch (error) {
         console.error('Error editing point metadata:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -296,7 +306,7 @@ export async function startAutoRead(deviceName: string): Promise<boolean> {
         return data;
     } catch (error) {
         console.error('Error starting auto read:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -308,7 +318,7 @@ export async function stopAutoRead(deviceName: string): Promise<boolean> {
         return data;
     } catch (error) {
         console.error('Error stopping auto read:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -321,7 +331,7 @@ export async function manualRead(deviceName: string, interval: number = 0): Prom
         return data;
     } catch (error) {
         console.error('Error performing manual read:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -371,7 +381,7 @@ export async function clearMessages(deviceName: string): Promise<boolean> {
         return data;
     } catch (error) {
         console.error('Error clearing messages:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -418,7 +428,7 @@ export async function addPoint(deviceName: string, pointData: PointCreateData): 
         return data;
     } catch (error) {
         console.error('Error adding point:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -432,7 +442,7 @@ export async function addPointsBatch(deviceName: string, frameType: number, poin
         return data;
     } catch (error) {
         console.error('Error adding points batch:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -445,7 +455,7 @@ export async function deletePoint(deviceName: string, pointCode: string): Promis
         return data;
     } catch (error) {
         console.error('Error deleting point:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -458,7 +468,7 @@ export async function addSlave(deviceName: string, slaveId: number): Promise<boo
         return data;
     } catch (error) {
         console.error('Error adding slave:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -471,7 +481,7 @@ export async function deleteSlave(deviceName: string, slaveId: number): Promise<
         return data;
     } catch (error) {
         console.error('Error deleting slave:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -485,7 +495,7 @@ export async function editSlave(deviceName: string, oldSlaveId: number, newSlave
         return data;
     } catch (error) {
         console.error('Error editing slave:', error);
-        return false;
+        throw error;
     }
 }
 
@@ -498,6 +508,70 @@ export async function clearPoints(deviceName: string, slaveId: number): Promise<
         return data;
     } catch (error) {
         console.error('Error clearing points:', error);
-        return 0;
+        throw error;
+    }
+}
+
+// ===== 变更追溯 =====
+
+export interface ChangeRecord {
+    source: string;
+    source_label: string;
+    old_value: any;
+    new_value: any;
+    old_real_value: any;
+    new_real_value: any;
+    timestamp: number;
+    time: string;
+    detail: string;
+    client_info?: string;
+}
+
+export interface PointChangeHistoryResponse {
+    point_code: string;
+    tracking_enabled: boolean;
+    maxlen: number;
+    history: ChangeRecord[];
+    count: number;
+}
+
+export async function getPointChangeHistory(deviceName: string, pointCode: string): Promise<PointChangeHistoryResponse | null> {
+    try {
+        const data = await requestApi('/device/get_point_change_history', 'post', {
+            device_name: deviceName,
+            point_code: pointCode,
+        });
+        return data;
+    } catch (error) {
+        console.error('Error getting point change history:', error);
+        return null;
+    }
+}
+
+export async function setChangeTrackingConfig(deviceName: string, pointCode: string, enabled: boolean, maxlen?: number): Promise<boolean> {
+    try {
+        const data = await requestApi('/device/set_change_tracking', 'post', {
+            device_name: deviceName,
+            point_code: pointCode,
+            enabled: enabled,
+            maxlen: maxlen
+        });
+        return data;
+    } catch (error) {
+        console.error('Error setting change tracking config:', error);
+        throw error;
+    }
+}
+
+export async function clearPointChangeHistory(deviceName: string, pointCode: string): Promise<boolean> {
+    try {
+        const data = await requestApi('/device/clear_point_change_history', 'post', {
+            device_name: deviceName,
+            point_code: pointCode,
+        });
+        return data;
+    } catch (error) {
+        console.error('Error clearing point change history:', error);
+        return false;
     }
 }

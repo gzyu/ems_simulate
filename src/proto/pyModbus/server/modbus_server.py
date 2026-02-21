@@ -25,14 +25,58 @@ from pymodbus.server import (
     StartAsyncTlsServer,
 )
 from pymodbus.framer import FramerRTU, FRAMER_NAME_TO_CLASS
+from pymodbus.server.requesthandler import ServerRequestHandler
 
 from src.enums.modbus_register import Decode, DecodeType
 from src.proto.pyModbus import helper
 from src.enums.modbus_def import ProtocolType
 from src.device.core.message.message_capture import MessageCapture
+from src.enums.points.change_tracker import change_client_info_ctx
 
 # 从子模块导入捕获Framer
 from .capture import CreateCaptureSocketFramer, CreateCaptureRtuFramer
+
+
+class CaptureRequestHandler(ServerRequestHandler):
+    """带客户端 IP 捕获的请求处理器。
+    
+    在 handle_request 执行前从 transport 获取客户端 peername，
+    设置 change_client_info_ctx 以便写入回调能获取真实客户端地址。
+    """
+
+    async def handle_request(self):
+        """Handle request with client IP context."""
+        client_info = ""
+        if self.transport:
+            try:
+                peername = self.transport.get_extra_info('peername')
+                if peername and isinstance(peername, tuple):
+                    client_info = f"{peername[0]}:{peername[1]}"
+            except Exception:
+                pass
+        if not client_info:
+            client_info = "unknown"
+
+        token = change_client_info_ctx.set(client_info)
+        try:
+            await super().handle_request()
+        finally:
+            change_client_info_ctx.reset(token)
+
+class CallbackDeviceContext(ModbusDeviceContext):
+    """自定义从机上下文，用于拦截 Modbus 客户端的写入操作"""
+    def __init__(self, slave_id, on_write_callback=None, **kwargs):
+        super().__init__(**kwargs)
+        self.slave_id = slave_id
+        self.on_write_callback = on_write_callback
+        self.is_internal_write = False
+
+    def setValues(self, fx, address, values):
+        """拦截写入操作"""
+        super().setValues(fx, address, values)
+        # 仅当不是 EMS 内部写入，且配置了回调时触发回调
+        if getattr(self, "on_write_callback", None) and not getattr(self, "is_internal_write", False):
+            self.on_write_callback(self.slave_id, fx, address, values)
 
 class ModbusServer:
     def __init__(
@@ -46,7 +90,6 @@ class ModbusServer:
         bytesize: int = 8,
         parity: str = "N",
         stopbits: int = 1,
-        keep_connection: bool = True,
     ):
         self._logger = logger
         self.server = None
@@ -61,9 +104,9 @@ class ModbusServer:
         self.task = None
         self.loop = None
         self.is_running = False
-        self.keep_connection = keep_connection
         self.stop_event = asyncio.Event()
         self.message_capture = MessageCapture() # 报文捕获器
+        self.on_write_callback = None  # 客户端写入回调用
         
         # 确保 slave_id_list 包含常用的从站地址 (0, 1)
         all_slave_ids = set(slave_id_list)
@@ -74,19 +117,22 @@ class ModbusServer:
         
         # 创建从站上下文
         self.slaves = {
-            slave_id: ModbusDeviceContext(
-                di=ModbusSequentialDataBlock(
-                    0, [0] * 65535
-                ),  # Discrete Inputs 初始化为 0
+            slave_id: CallbackDeviceContext(
+                slave_id=slave_id,
+                on_write_callback=self._handle_client_write,
+                di=ModbusSequentialDataBlock(0, [0] * 65535),  # Discrete Inputs 初始化为 0
                 co=ModbusSequentialDataBlock(0, [0] * 65535),  # Coils 初始化为 0
-                hr=ModbusSequentialDataBlock(
-                    0, [0] * 65535
-                ),  # Holding Registers 初始化为 0
-                ir=ModbusSequentialDataBlock(0, [0] * 65535),
-            )  # Input Registers 初始化为 0
+                hr=ModbusSequentialDataBlock(0, [0] * 65535),  # Holding Registers 初始化为 0
+                ir=ModbusSequentialDataBlock(0, [0] * 65535),  # Input Registers 初始化为 0
+            ) 
             for slave_id in self._slave_id_list
         }
         self.context = ModbusServerContext(devices=self.slaves, single=False)
+
+    def _handle_client_write(self, slave_id: int, fx: int, address: int, values: List[int]):
+        """处理来自客户端的 Modbus 写入，并转发到回调"""
+        if self.on_write_callback:
+            self.on_write_callback(slave_id, fx, address, values)
 
     def setServerAddress(self, address):
         self.ip = address
@@ -178,21 +224,6 @@ class ModbusServer:
             "identity": args.identity,  # server identify
         }
 
-
-        # 如果启用了保持连接功能 (仅限 TCP/UDP)
-        if self.keep_connection and self.protocol_type in [
-            ProtocolType.ModbusTcp, 
-            ProtocolType.ModbusTcpClient, 
-            ProtocolType.ModbusUdp,
-            ProtocolType.ModbusRtuOverTcp
-        ]:
-            self._logger.info("保持连接功能已启用，将接收Modbus报文而不断开连接")
-            # common_params["handler"] = KeepConnectionHandler
-        else:
-            # 否则使用基础的捕获处理器
-            # common_params["handler"] = CaptureRequestHandler
-            pass
-
         try:
             if self.protocol_type == ProtocolType.ModbusTcp:
                 address = (
@@ -276,12 +307,26 @@ class ModbusServer:
                 )
             
             if self.server:
+                # 替换 callback_new_connection 以注入带客户端 IP 捕获的 RequestHandler
+                self._patch_server_handler()
                 await self.server.serve_forever()
             else:
                 self._logger.error(f"无法初始化服务器: {self.protocol_type}")
         except Exception as e:
             self._logger.error(f"运行 Modbus 服务器失败 ({self.protocol_type}): {e}")
             raise
+
+    def _patch_server_handler(self):
+        """替换 server 的 callback_new_connection，注入 CaptureRequestHandler。"""
+        server = self.server
+        def patched_callback_new_connection():
+            return CaptureRequestHandler(
+                server,
+                server.trace_packet,
+                server.trace_pdu,
+                server.trace_connect
+            )
+        server.callback_new_connection = patched_callback_new_connection
 
     async def initServer(self):
         runArgs = self.setUpServer(
@@ -417,8 +462,10 @@ class ModbusServer:
             return
 
         # 创建新的从站上下文
-        from pymodbus.datastore import ModbusSequentialDataBlock, ModbusSlaveContext
-        self.slaves[slave_id] = ModbusSlaveContext(
+        from pymodbus.datastore import ModbusSequentialDataBlock
+        self.slaves[slave_id] = CallbackDeviceContext(
+            slave_id=slave_id,
+            on_write_callback=self._handle_client_write,
             di=ModbusSequentialDataBlock(0, [0] * 65535),
             co=ModbusSequentialDataBlock(0, [0] * 65535),
             hr=ModbusSequentialDataBlock(0, [0] * 65535),
@@ -511,7 +558,15 @@ class ModbusServer:
         # 设置寄存器值
         if func_code == 10:
             func_code = 6
-        self.slaves[rtu_addr].setValues(func_code, address, registers)
+        
+        slave_ctx = self.slaves[rtu_addr]
+        if isinstance(slave_ctx, CallbackDeviceContext):
+            slave_ctx.is_internal_write = True
+        try:
+            slave_ctx.setValues(func_code, address, registers)
+        finally:
+            if isinstance(slave_ctx, CallbackDeviceContext):
+                slave_ctx.is_internal_write = False
 
     def getValueByAddress(
         self,

@@ -13,9 +13,8 @@ from typing import TYPE_CHECKING, List, Dict, Optional, Tuple, Union
 
 from src.enums.point_data import Yc, Yx, BasePoint
 from src.enums.modbus_register import Decode
-
-if TYPE_CHECKING:
-    from src.device.core.device import Device
+from src.enums.points.change_tracker import ChangeSource, track_change
+from src.device.protocol.base_handler import ServerHandler, ClientHandler
 
 
 @dataclass
@@ -54,6 +53,18 @@ class DataReader:
         """获取日志器"""
         return self._device.log
 
+    def _get_change_source(self) -> ChangeSource:
+        """根据协议处理器类型获取变更来源
+
+        服务端设备：外部客户端通过协议写入，属于协议远程修改
+        客户端设备：从远程服务器读取数据变化，属于客户端读取
+        """
+        if isinstance(self._handler, ServerHandler):
+            return ChangeSource.PROTOCOL
+        elif isinstance(self._handler, ClientHandler):
+            return ChangeSource.CLIENT_READ
+        return ChangeSource.INTERNAL
+
     def get_slave_values(
         self, yc_list: List[Yc], yx_list: List[Yx]
     ) -> None:
@@ -70,7 +81,8 @@ class DataReader:
             try:
                 value = self._handler.read_value(point)
                 if value is not None:
-                    point.value = value
+                    with track_change(self._get_change_source(), f"数据同步 {point.code}"):
+                        point.value = value
                     point.is_valid = True
                 else:
                     point.is_valid = False
@@ -120,6 +132,7 @@ class DataReader:
         """逐点读取模式（回退方案）"""
         success_count = 0
         fail_count = 0
+        change_source = self._get_change_source()
         for point in points:
             try:
                 if hasattr(self._handler, 'read_value_async'):
@@ -128,7 +141,8 @@ class DataReader:
                     value = self._handler.read_value(point)
 
                 if value is not None:
-                    point.value = value
+                    with track_change(change_source, f"异步数据同步 {point.code}"):
+                        point.value = value
                     point.is_valid = True
                     success_count += 1
                 else:
@@ -325,7 +339,8 @@ class DataReader:
                 value = self._decode_registers(point_registers, decode_info)
 
                 if value is not None:
-                    point.value = value
+                    with track_change(self._get_change_source(), f"批量数据同步 {point.code}"):
+                        point.value = value
                     point.is_valid = True
                 else:
                     point.is_valid = False
@@ -387,13 +402,16 @@ class DataReader:
             from src.device.protocol.iec104_handler import IEC104ClientHandler
 
             if not isinstance(self._handler, IEC104ClientHandler):
+                self._log.error("Handler is not IEC104ClientHandler")
                 return
 
-            if not self._handler._is_running:
+            if not self._handler.is_running:
+                self._log.error("Handler is not running")
                 return
 
             client = self._handler._client
             if not client or not client.station:
+                self._log.error("Client or station is not available")
                 return
 
             # 获取该从机下的所有测点 (yc, yx, yt, yk)
@@ -407,6 +425,7 @@ class DataReader:
                     # 直接从 c104.Point 对象读取值（服务端上报时自动更新）
                     c104_point = client.station.get_point(io_address=point.address)
                     if c104_point is None:
+                        self._log.error(f"Point {point.code} not found in client")
                         continue
 
                     real_val = c104_point.value
@@ -417,11 +436,18 @@ class DataReader:
                                 raw_val = int(
                                     (float(real_val) - point.add_coe) / point.mul_coe
                                 )
-                                point.value = raw_val
-                            except (ZeroDivisionError, TypeError):
-                                pass
+                                with track_change(ChangeSource.CLIENT_READ, f"IEC104客户端同步 {point.code}"):
+                                    point.value = raw_val
+                                point.is_valid = True
+                            except (ZeroDivisionError, TypeError) as e:
+                                self._log.error(f"Error decoding point {point.code}: {e}")
+                                point.is_valid = False
                         else:
-                            point.value = real_val
+                            with track_change(ChangeSource.CLIENT_READ, f"IEC104客户端同步 {point.code}"):
+                                point.value = real_val
+                            point.is_valid = True
+                    else:
+                        point.is_valid = False
                 except Exception as e:
                     self._log.debug(f"同步测点 {point.code} 失败: {e}")
         except Exception as e:

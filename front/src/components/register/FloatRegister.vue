@@ -88,22 +88,21 @@ const reset = () => {
 
 const emit = defineEmits(["editSuccess"]);
 const editRegisterValue = async() => {
-  const isSuccess = await editPointData(
-    props.deviceName,
-    props.pointCode,
-    parseFloat(floatRegister.value.real.toString())
-  );
-  if (!isSuccess) {
-    ElMessage({
-      message: '修改失败!',
-      type: 'error'
-    })
-  } else {
-    emit("editSuccess",props.rowIndex, parseFloat(floatRegister.value.real.toString()), getFloatHex(floatRegister.value.floatABCD));
-    ElMessage({
-      message: '修改成功!',
-      type: 'success'
-    })
+  try {
+    const isSuccess = await editPointData(
+      props.deviceName,
+      props.pointCode,
+      parseFloat(floatRegister.value.real.toString())
+    );
+    if (isSuccess) {
+      emit("editSuccess",props.rowIndex, parseFloat(floatRegister.value.real.toString()), getFloatHex(floatRegister.value.floatABCD));
+      ElMessage({
+        message: '修改成功!',
+        type: 'success'
+      })
+    }
+  } catch (error) {
+    console.error('Edit float register failed:', error);
   }
 }
 

@@ -1,0 +1,260 @@
+<template>
+  <div class="change-history">
+    <div class="config-bar">
+      <div class="config-item">
+        <span class="label">启用变更追溯:</span>
+        <el-switch
+          v-model="trackingEnabled"
+          active-text="开启"
+          inactive-text="关闭"
+          @change="handleConfigChange"
+        />
+      </div>
+      <div class="config-item">
+        <span class="label">历史条数上限:</span>
+        <el-input-number
+          v-model="maxlen"
+          :min="1"
+          :max="100"
+          size="small"
+          @change="handleConfigChange"
+        />
+      </div>
+      <div class="actions">
+        <el-button type="primary" size="small" :icon="Refresh" @click="loadHistory">刷新</el-button>
+        <el-button type="danger" size="small" :icon="Delete" @click="handleClear">清空记录</el-button>
+      </div>
+    </div>
+
+    <el-table :data="history" style="width: 100%" height="300" border stripe class="history-table">
+      <el-table-column prop="time" label="变更时间" width="200" show-overflow-tooltip align="center" header-align="center">
+        <template #default="scope">
+          <span class="timestamp">{{ scope.row.time }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="source_label" label="变更来源" width="120" align="center" header-align="center">
+        <template #default="scope">
+          <el-tag :type="getSourceTagType(scope.row.source)" size="small">
+            {{ scope.row.source_label }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="client_info" label="来源地址" width="160" align="center" header-align="center" show-overflow-tooltip>
+        <template #default="scope">
+          <span v-if="scope.row.client_info" class="client-info">
+            {{ scope.row.client_info }}
+          </span>
+          <span v-else class="client-info empty">-</span>
+        </template>
+      </el-table-column>
+      <el-table-column min-width="180" align="center" header-align="center">
+        <template #header>
+          值变化
+          <el-tooltip effect="dark" content="括号内为寄存器值" placement="top">
+            <el-icon style="margin-left: 4px; font-size: 14px; vertical-align: middle; cursor: help;"><QuestionFilled /></el-icon>
+          </el-tooltip>
+        </template>
+        <template #default="scope">
+          <div class="value-change">
+            <span class="old-val">
+              {{ scope.row.old_real_value }} <span v-if="scope.row.old_real_value !== scope.row.old_value" class="register-info">({{ scope.row.old_value }})</span>
+            </span>
+            <el-icon class="arrow"><Right /></el-icon>
+            <span class="new-val">
+              {{ scope.row.new_real_value }} <span v-if="scope.row.new_real_value !== scope.row.new_value" class="register-info">({{ scope.row.new_value }})</span>
+            </span>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column prop="detail" label="详情描述" min-width="120" show-overflow-tooltip align="center" header-align="center" />
+    </el-table>
+
+    <div class="history-footer">
+      <span>共 {{ history.length }} 条记录（上限 {{ maxlen }} 条）</span>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, watch } from 'vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { Refresh, Delete, Right, QuestionFilled } from '@element-plus/icons-vue';
+import { 
+  getPointChangeHistory, 
+  setChangeTrackingConfig, 
+  clearPointChangeHistory,
+  type ChangeRecord 
+} from '@/api/deviceApi';
+
+interface Props {
+  deviceName: string;
+  pointCode: string;
+  active?: boolean;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  active: true
+});
+
+const history = ref<ChangeRecord[]>([]);
+const trackingEnabled = ref(false);
+const maxlen = ref(50);
+const loading = ref(false);
+
+const loadHistory = async () => {
+  if (!props.pointCode) return;
+  loading.value = true;
+  try {
+    const res = await getPointChangeHistory(props.deviceName, props.pointCode);
+    if (res) {
+      history.value = res.history;
+      trackingEnabled.value = res.tracking_enabled;
+      if (res.maxlen !== undefined) {
+        maxlen.value = res.maxlen;
+      }
+    }
+  } catch (error: any) {
+    ElMessage.error('加载变更历史失败: ' + error.message);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const handleConfigChange = async () => {
+  try {
+    const success = await setChangeTrackingConfig(props.deviceName, props.pointCode, trackingEnabled.value, maxlen.value);
+    if (success) {
+      ElMessage.success('配置已更新');
+      loadHistory();
+    }
+  } catch (error: any) {
+    ElMessage.error('更新配置失败: ' + error.message);
+  }
+};
+
+const handleClear = () => {
+  ElMessageBox.confirm('确定要清空该测点的所有变更历史吗？', '提示', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(async () => {
+    try {
+      const success = await clearPointChangeHistory(props.deviceName, props.pointCode);
+      if (success) {
+        ElMessage.success('清空成功');
+        loadHistory();
+      }
+    } catch (error: any) {
+      ElMessage.error('清空失败: ' + error.message);
+    }
+  }).catch(() => {});
+};
+
+const getSourceTagType = (source: string) => {
+  switch (source) {
+    case 'manual': return 'primary';
+    case 'simulation': return 'success';
+    case 'mapping': return 'info';
+    case 'protocol': return 'warning';
+    default: return 'info';
+  }
+};
+
+watch(() => props.active, (newVal) => {
+  if (newVal) {
+    loadHistory();
+  }
+}, { immediate: true });
+
+// 切换设备或测点时，如果当前处于激活状态则自动加载
+watch([() => props.deviceName, () => props.pointCode], () => {
+  if (props.active) {
+    loadHistory();
+  }
+});
+</script>
+
+<style scoped lang="scss">
+.change-history {
+  width: 95%;
+  padding: 12px;
+  background-color: white;
+  border-radius: 8px;
+  border: 1px solid #e4e7ed;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.config-bar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  
+  .config-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    
+    .label {
+      font-size: 14px;
+      color: #606266;
+    }
+  }
+  
+  .actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+  }
+}
+
+.history-table {
+  border-radius: 4px;
+  overflow: hidden;
+  
+  .timestamp {
+    font-size: 13px;
+    color: #606266;
+  }
+  
+  .value-change {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: 500;
+    
+    .old-val { color: #f56c6c; }
+    .new-val { color: #67c23a; }
+    .arrow { color: #909399; }
+  }
+
+  .register-info {
+    font-size: 11px;
+    color: #909399;
+    font-weight: normal;
+    margin-left: 2px;
+  }
+
+  .client-info {
+    font-size: 13px;
+    color: #606266;
+  }
+
+  .client-info.empty {
+    color: #c0c4cc;
+  }
+}
+
+.history-footer {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #909399;
+  text-align: right;
+}
+
+:deep(.el-table__row) {
+  height: 48px;
+}
+</style>

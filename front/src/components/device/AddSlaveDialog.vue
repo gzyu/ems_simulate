@@ -98,11 +98,9 @@ const handleSubmit = async () => {
       ElMessage.success('添加从机成功');
       emit('success');
       handleClose();
-    } else {
-      ElMessage.error('添加从机失败，请检查从机地址是否有效');
     }
   } catch (error) {
-    console.error('表单验证失败:', error);
+    console.error('添加从机失败:', error);
   } finally {
     loading.value = false;
   }

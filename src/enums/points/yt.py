@@ -125,6 +125,8 @@ class Yt(BasePoint):
         if not self._is_updating and value != self._value:
             self._is_updating = True
             try:
+                old_value = self._value
+                old_real_value = self._real_value
                 self._value = value
 
                 # 根据数据类型选择转换方式
@@ -134,6 +136,7 @@ class Yt(BasePoint):
                 hex_str = "".join(f"{b:02X}" for b in buffer)
                 self._hex_value = f"0x{hex_str}"
                 self.real_value = value * self._mul_coe + self._add_coe
+                self._record_change(old_value, value, old_real_value, self.real_value)
 
                 if self.is_send_signal:
                     self.value_changed.send(

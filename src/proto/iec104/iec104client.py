@@ -131,6 +131,7 @@ class IEC104Client:
                     return bool(point.value)
                 elif frame_type == 3:
                     return float(point.value)
+            print(point.value)
             return None
         except Exception as e:
             log.error(f"读取监控点值失败: {e}")
@@ -149,8 +150,8 @@ class IEC104Client:
             raise Exception("未连接到服务器，无法写入数据")
 
         if frame_type == 0 or frame_type == 1:
-            log.error("遥信和遥控帧类型不支持写入")
-            raise Exception("遥信和遥控帧类型不支持写入")
+            log.error("遥测和遥信帧类型不支持写入")
+            raise Exception("遥测和遥信帧类型不支持写入")
 
         try:
             point = self.station.get_point(io_address=io_address)

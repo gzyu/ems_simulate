@@ -3,8 +3,14 @@
 提取遥测、遥信、遥调、遥控的公共属性和方法
 """
 
-from typing import Dict, Optional, Union
+from collections import deque
+from typing import Dict, List, Optional, Union
 from blinker import Signal
+
+from src.enums.points.change_tracker import (
+    ChangeRecord, ChangeSource,
+    get_current_source, get_current_detail,
+)
 
 
 def decimal_to_hex_formatted(decimal_number: int, length=4) -> str:
@@ -48,6 +54,11 @@ class BasePoint:
         self.is_signed = False
         self.is_valid = None  # 数据是否有效（None:未知, True:成功, False:失败）
         self.is_locked_by_mapping = False # 是否被映射锁定（如果为True，则模拟器不应修改此值）
+
+        # 变更追溯（默认开启）
+        self._change_tracking_enabled: bool = True
+        self._change_history_maxlen: int = 50
+        self._change_history: deque[ChangeRecord] = deque(maxlen=self._change_history_maxlen)
 
     def list(self) -> list:
         """返回测点属性列表，供表格显示使用"""
@@ -125,9 +136,11 @@ class BasePoint:
         if not self._is_updating and value != self._value:
             self._is_updating = True
             try:
+                old_value = self._value
                 self._value = value
                 if isinstance(value, int):
                     self._hex_value = decimal_to_hex_formatted(value)
+                self._record_change(old_value, value)
                 if self.is_send_signal:
                     self.value_changed.send(
                         self, old_point=self, related_point=self.related_point
@@ -170,3 +183,59 @@ class BasePoint:
     def set_real_value(self, real_value) -> bool:
         """设置真实值，子类需重写此方法"""
         raise NotImplementedError("子类需实现 set_real_value 方法")
+
+    # ===== 变更追溯 =====
+
+    @property
+    def change_tracking_enabled(self) -> bool:
+        """变更追溯是否已启用"""
+        return self._change_tracking_enabled
+
+    def enable_change_tracking(self) -> None:
+        """启用变更追溯"""
+        self._change_tracking_enabled = True
+
+    def disable_change_tracking(self) -> None:
+        """禁用变更追溯"""
+        self._change_tracking_enabled = False
+
+    def set_change_history_maxlen(self, maxlen: int) -> None:
+        """设置变更历史最大条数（上限100）"""
+        maxlen = max(1, min(maxlen, 100))
+        self._change_history_maxlen = maxlen
+        # 重建 deque 保留已有数据
+        old = list(self._change_history)
+        self._change_history = deque(old, maxlen=maxlen)
+
+    def clear_change_history(self) -> None:
+        """清空变更历史"""
+        self._change_history.clear()
+
+    def _record_change(self, old_value, new_value, old_real_value=None, new_real_value=None) -> None:
+        """记录一次测点值变更（从 ContextVar 读取变更原因）"""
+        if not self._change_tracking_enabled:
+            return
+        from src.enums.points.change_tracker import get_current_client_info
+        source = get_current_source()
+        detail = get_current_detail()
+        client_info = get_current_client_info()
+        record = ChangeRecord(
+            source=source,
+            old_value=old_value,
+            new_value=new_value,
+            old_real_value=old_real_value,
+            new_real_value=new_real_value,
+            detail=detail,
+            client_info=client_info,
+        )
+        self._change_history.append(record)
+
+    @property
+    def change_history(self) -> List[ChangeRecord]:
+        """返回变更历史记录列表（从旧到新）"""
+        return list(self._change_history)
+
+    @property
+    def last_change(self) -> Optional[ChangeRecord]:
+        """返回最近一条变更记录"""
+        return self._change_history[-1] if self._change_history else None

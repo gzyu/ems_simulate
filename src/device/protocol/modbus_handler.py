@@ -12,6 +12,7 @@ from src.enums.points.base_point import BasePoint
 from src.enums.point_data import Yc, Yx, Yt, Yk
 from src.enums.modbus_def import ProtocolType
 from src.enums.modbus_register import Decode
+from src.enums.points.change_tracker import ChangeSource, track_change, get_current_client_info
 from src.config.config import Config
 
 # 线程池用于执行同步阻塞的 Modbus 操作
@@ -26,6 +27,7 @@ class ModbusServerHandler(ServerHandler):
         self._server = None
         self._log = log
         self._slave_id_list: List[int] = []
+        self._points: List[BasePoint] = []
 
     def initialize(self, config: Dict[str, Any]) -> None:
         """初始化 Modbus 服务器
@@ -64,6 +66,8 @@ class ModbusServerHandler(ServerHandler):
             stopbits=stopbits,
             parity=parity
         )
+        # 设置回调函数，用于处理来自 Modbus 客户端的写入请求，记录测点变化日志
+        self._server.on_write_callback = self._on_modbus_client_write
 
     async def start(self) -> bool:
         """启动 Modbus 服务器"""
@@ -116,8 +120,48 @@ class ModbusServerHandler(ServerHandler):
         return self.write_value(point, value)
 
     def add_points(self, points: List[BasePoint]) -> None:
-        """添加测点（Modbus 服务器使用地址块方式，无需逐个添加）"""
-        pass
+        """添加测点"""
+        for p in points:
+            if p not in self._points:
+                self._points.append(p)
+
+    def _on_modbus_client_write(self, slave_id: int, fx: int, address: int, values: List[int]) -> None:
+        """处理来自 Modbus 客户端的写入请求，并同步回设备测点"""
+        if not self._points:
+            return
+            
+        # 根据功能码判断是否支持
+        if fx not in (5, 6, 15, 16):
+            return
+
+        write_start_addr = address
+        write_end_addr = address + len(values) - 1
+
+        for point in self._points:
+            if getattr(point, "rtu_addr", None) == slave_id:
+                # 检查功能码是否匹配 (保持寄存器 3, 6, 16 -> 修改时 fx 为 6 或 16)
+                # (线圈 1, 5, 15 -> 修改时 fx 为 5 或 15)
+                is_holding_reg = (point.func_code in (3, 6, 16)) and (fx in (6, 16))
+                is_coil = (point.func_code in (1, 5, 15)) and (fx in (5, 15))
+                
+                if is_holding_reg or is_coil:
+                    # 计算测点占据的寄存器范围
+                    # Decode.get_decode_register_cnt 可以获取寄存器数，向后兼容 hasattr
+                    point_start_addr = point.address
+                    if hasattr(point, "register_cnt"):
+                        point_end_addr = point.address + point.register_cnt - 1
+                    else:
+                        from src.enums.modbus_register import Decode
+                        point_end_addr = point.address + Decode.get_decode_register_cnt(getattr(point, "decode", "0x41")) - 1
+                    
+                    # 判断地址是否有交集
+                    if max(point_start_addr, write_start_addr) <= min(point_end_addr, write_end_addr):
+                        # 重新读取点位值并设置
+                        new_value = self.read_value(point)
+                        if new_value is not None:
+                            client_info = get_current_client_info() or "未知客户端"
+                            with track_change(ChangeSource.PROTOCOL, f"Modbus客户端远程写入 {point.code}", client_info):
+                                point.value = new_value
 
     def get_value_by_address(
         self, func_code: int, slave_id: int, address: int
@@ -132,7 +176,7 @@ class ModbusServerHandler(ServerHandler):
     ) -> None:
         """根据地址设置值"""
         if self._server:
-            self._server.setValueByAddress(func_code, slave_id, address, value) # 这里可能需要默认值或外部传入 decode
+            self._server.setValueByAddress(func_code, slave_id, address, value)
 
     @property
     def server(self):
@@ -478,12 +522,7 @@ class ModbusClientHandler(ClientHandler):
                     ),
                     self._loop
                 )
-                try:
-                    return future.result(timeout=2.0)
-                except Exception as e:
-                    if self._log:
-                        self._log.error(f"Async write_value timeout/error: {e}")
-                    return False
+                return future.result(timeout=2.0)
             return False
         else:
             self._client.write_value_by_address(
@@ -539,34 +578,24 @@ class ModbusClientHandler(ClientHandler):
         # 检查是否是异步客户端
         is_async = hasattr(self._client, 'write_value_by_address') and asyncio.iscoroutinefunction(self._client.write_value_by_address)
 
-        try:
-            if is_async:
-                # 使用 asyncio.wait_for 添加超时保护
-                return await asyncio.wait_for(
-                    self._client.write_value_by_address(
-                        point.func_code, point.rtu_addr, point.address, value, point.decode
-                    ),
-                    timeout=2.0  # 2秒超时
-                )
-            else:
-                # 同步客户端，放到线程池执行
-                loop = asyncio.get_running_loop()
-                return await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None, # 使用默认执行器
-                        self._client.write_value_by_address,
-                        point.func_code, point.rtu_addr, point.address, value, point.decode
-                    ),
-                    timeout=2.0  # 2秒超时
-                )
-        except asyncio.TimeoutError:
-            if self._log:
-                self._log.error(f"Async write_value timeout: {point.code if hasattr(point, 'code') else point}")
-            return False
-        except Exception as e:
-            if self._log:
-                self._log.error(f"Async write_value error: {e}")
-            return False
+        if is_async:
+            return await asyncio.wait_for(
+                self._client.write_value_by_address(
+                    point.func_code, point.rtu_addr, point.address, value, point.decode
+                ),
+                timeout=2.0
+            )
+        else:
+            # 同步客户端，放到线程池执行
+            loop = asyncio.get_running_loop()
+            return await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    self._client.write_value_by_address,
+                    point.func_code, point.rtu_addr, point.address, value, point.decode
+                ),
+                timeout=2.0
+            )
 
     def add_points(self, points: List[BasePoint]) -> None:
         """添加测点（Modbus 客户端按需读写，无需预先添加）"""

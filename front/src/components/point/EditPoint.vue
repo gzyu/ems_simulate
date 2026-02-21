@@ -46,6 +46,7 @@
 
 <script setup name="EditPoint">
 import { computed, ref } from "vue";
+import { ElMessage } from 'element-plus';
 import { editPointData } from "@/api/deviceApi";
 import { useRoute } from "vue-router";
 const route = useRoute();
@@ -69,22 +70,25 @@ const visible = computed(() => props.editDialogVisible);
 const registerValue = computed(() => props.registerValue);
 const emit = defineEmits(["editSuccess"]);
 
-const editRegisterValue = () => {
+const editRegisterValue = async () => {
   props.setEditDialogVisible(false);
-  const isSuccess = editPointData(
-    deviceName.value,
-    props.editConfig.pointCode,
-    registerValue.value
-  );
-  if (!isSuccess) {
-    alert("修改失败!");
-  } else {
-    emit(
-      "editSuccess",
+  try {
+    const isSuccess = await editPointData(
+      deviceName.value,
       props.editConfig.pointCode,
-      props.editConfig.realValue,
       registerValue.value
     );
+    if (isSuccess) {
+      emit(
+        "editSuccess",
+        props.editConfig.pointCode,
+        props.editConfig.realValue,
+        registerValue.value
+      );
+      ElMessage.success("修改成功!");
+    }
+  } catch (error) {
+    console.error('Edit register failed:', error);
   }
 };
 

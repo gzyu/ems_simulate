@@ -237,3 +237,17 @@ class PointsBatchCreateRequest(BaseModel):
     device_name: str = Field(..., description="设备名称")
     frame_type: int = Field(..., description="测点类型: 0=遥测, 1=遥信, 2=遥控, 3=遥调")
     points: List[PointItem] = Field(..., description="测点数据列表")
+
+
+class PointChangeHistoryRequest(BaseModel):
+    """查询测点变更历史请求"""
+    device_name: str = Field(..., description="设备名称")
+    point_code: str = Field(..., description="测点编码")
+
+
+class ChangeTrackingConfigRequest(BaseModel):
+    """变更追溯配置请求"""
+    device_name: str = Field(..., description="设备名称")
+    point_code: Optional[str] = Field(None, description="测点编码，若不传则应用到设备所有测点")
+    enabled: bool = Field(..., description="是否启用变更追溯")
+    maxlen: Optional[int] = Field(None, description="历史记录最大条数（1-100），不传则不修改")

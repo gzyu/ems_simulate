@@ -165,7 +165,7 @@ class ModbusClient:
             raise ConnectionError("Client not connected to server")
 
         try:
-            response = self.client.read_coils(address, count, slave=slave_id)
+            response = self.client.read_coils(address, count, device_id=slave_id)
             if not response.isError():
                 return response.bits[:count]
             else:
@@ -199,7 +199,7 @@ class ModbusClient:
             raise ConnectionError("Client not connected to server")
 
         try:
-            response = self.client.read_discrete_inputs(address, count, slave=slave_id)
+            response = self.client.read_discrete_inputs(address, count, device_id=slave_id)
             if not response.isError():
                 return response.bits[:count]
             else:
@@ -242,7 +242,7 @@ class ModbusClient:
                 self.log.debug(f"读取保持寄存器: slave={slave_id}, addr={address}, count={count}")
             
             response = self.client.read_holding_registers(
-                address, count, slave=slave_id
+                address, count, device_id=slave_id
             )
             if not response.isError():
                 return response.registers
@@ -280,7 +280,7 @@ class ModbusClient:
                 print("Client not connected to server")
 
         try:
-            response = self.client.read_input_registers(address, count, slave=slave_id)
+            response = self.client.read_input_registers(address, count, device_id=slave_id)
             if not response.isError():
                 return response.registers
             else:
@@ -315,7 +315,7 @@ class ModbusClient:
                 print("Client not connected to server")
 
         try:
-            response = self.client.write_coil(address, value, slave=slave_id)
+            response = self.client.write_coil(address, value, device_id=slave_id)
             return not response.isError()
         except ModbusException as e:
             if self.log:
@@ -343,7 +343,7 @@ class ModbusClient:
                 print("Client not connected to server")
 
         try:
-            response = self.client.write_register(address, value, slave=slave_id)
+            response = self.client.write_register(address, value, device_id=slave_id)
             return not response.isError()
         except ModbusException as e:
             if self.log:
@@ -373,7 +373,7 @@ class ModbusClient:
                 print("Client not connected to server")
 
         try:
-            response = self.client.write_coils(address, values, slave=slave_id)
+            response = self.client.write_coils(address, values, device_id=slave_id)
             return not response.isError()
         except ModbusException as e:
             if self.log:
@@ -403,7 +403,7 @@ class ModbusClient:
                 print("Client not connected to server")
 
         try:
-            response = self.client.write_registers(address, values, slave=slave_id)
+            response = self.client.write_registers(address, values, device_id=slave_id)
             return not response.isError()
         except ModbusException as e:
             if self.log:

@@ -9,6 +9,7 @@ import c104
 from src.device.protocol.base_handler import ServerHandler, ClientHandler
 from src.enums.points.base_point import BasePoint
 from src.enums.point_data import Yc, Yx, Yt, Yk
+from src.enums.points.change_tracker import ChangeSource, track_change
 from src.config.config import Config
 
 
@@ -211,6 +212,7 @@ class IEC104ClientHandler(ClientHandler):
         
         重写父类方法，实时检测连接状态。
         当服务端主动断开时，这个属性能反映真实状态。
+        注意：不再缓存断开状态到 _is_running，避免连接恢复后仍然无法读取数据。
         """
         if not self._is_running:
             return False
@@ -218,25 +220,24 @@ class IEC104ClientHandler(ClientHandler):
         if not self._client:
             return False
         
-        # 检查 IEC104Client 的连接状态
+        # 实时检查 IEC104Client 的连接状态（不缓存断开状态）
         if hasattr(self._client, 'is_connected'):
             if not self._client.is_connected:
-                self._is_running = False
                 return False
         
-        # 检查 c104 station 的连接状态
+        # 实时检查 c104 station 的连接状态
         if hasattr(self._client, 'station') and self._client.station:
             if hasattr(self._client.station, 'is_connected'):
                 if not self._client.station.is_connected:
-                    self._is_running = False
                     return False
         
         return True
 
     def read_value(self, point: BasePoint) -> Any:
         """读取测点值"""
-        # 检查客户端是否已连接
-        if not self._client or not self._is_running:
+        # 检查客户端是否已连接（使用 is_running 属性实时检测）
+        if not self._client or not self.is_running:
+            self._log.error("IEC104 客户端未连接")
             return None
         
         # IEC104 客户端通过 read_point 获取物理值
@@ -244,6 +245,7 @@ class IEC104ClientHandler(ClientHandler):
             io_address=point.address, frame_type=point.frame_type
         )
         if real_val is None:
+            self._log.error("IEC104 客户端读取测点值失败")
             return None
         
         # 如果是遥测点，需要根据系数反向换算回寄存器/原始值
@@ -252,24 +254,36 @@ class IEC104ClientHandler(ClientHandler):
             try:
                 return int((real_val - point.add_coe) / point.mul_coe)
             except (ZeroDivisionError, TypeError):
+                self._log.error("IEC104 客户端读取测点值失败，系数计算失败")
                 return None
         return real_val
 
     def write_value(self, point: BasePoint, value: Any) -> bool:
         """写入测点值（发送命令）"""
-        if not self._client or not self._is_running:
+        if not self._client or not self.is_running:
             return False
 
         # 客户端写入：将内部原始值换算为物理值发送给外部设备
         real_to_send = value
-        if isinstance(point, Yc):
-            real_to_send = value * point.mul_coe + point.add_coe
+        
+        try:
+            if isinstance(point, (Yc, Yt)):
+                real_to_send = value * point.mul_coe + point.add_coe
+                return self._client.write_point(
+                    io_address=point.address,
+                    value=float(real_to_send),
+                    frame_type=point.frame_type
+                )
+            elif isinstance(point, (Yx, Yk)):
+                return self._client.write_point(
+                    io_address=point.address,
+                    value=bool(real_to_send),
+                    frame_type=point.frame_type
+                )
+        except Exception as e:
+            self._log.error(f"IEC104 客户端写入失败: {e}")
+            return False
             
-            return self._client.write_point(
-                io_address=point.address,
-                value=float(real_to_send),
-                frame_type=point.frame_type
-            )
         return False
 
     def add_points(self, points: List[BasePoint]) -> None:

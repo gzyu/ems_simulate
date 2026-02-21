@@ -92,22 +92,22 @@ const reset = () => {
 
 const emit = defineEmits(["editSuccess"]);
 const editRegisterValue = async() => {
-  const isSuccess = await editPointData(
-    props.deviceName,
-    props.pointCode,
-    parseFloat(pointRegister.value.real.toString())
-  );
-  if (!isSuccess) {
-    ElMessage({
-      message: '修改失败!',
-      type: 'error'
-    })
-  } else {
-    emit("editSuccess",props.rowIndex, parseFloat(pointRegister.value.real.toString()), getIntHex(pointRegister.value.signed));
-    ElMessage({
-      message: '修改成功!',
-      type: 'success'
-    })
+  try {
+    const isSuccess = await editPointData(
+      props.deviceName,
+      props.pointCode,
+      parseFloat(pointRegister.value.real.toString())
+    );
+    if (isSuccess) {
+      emit("editSuccess",props.rowIndex, parseFloat(pointRegister.value.real.toString()), getIntHex(pointRegister.value.signed));
+      ElMessage({
+        message: '修改成功!',
+        type: 'success'
+      })
+    }
+  } catch (error) {
+    // 全局拦截器已处理错误显示，此处仅捕获以防控制台未捕获错误
+    console.error('Edit register failed:', error);
   }
 }
 

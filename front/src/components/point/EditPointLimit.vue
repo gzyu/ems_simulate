@@ -24,7 +24,7 @@
 </template>
 
 <script setup name="SingleRegister" lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { editPointLimit, getPointLimit } from "@/api/deviceApi";
 import { ElMessage } from "element-plus";
 import "element-plus/dist/index.css";
@@ -33,6 +33,7 @@ import type { PointLimit } from "@/types/point";
 const props = defineProps({
   deviceName: { type: String, required: true },
   pointCode: { type: String, required: true },
+  active: { type: Boolean, default: true }
 });
 
 const pointLimit = ref<PointLimit>({
@@ -55,29 +56,41 @@ const editPointLimitValue = async () => {
     return;
   }
 
-  const isSuccess = await editPointLimit(
-    props.deviceName,
-    props.pointCode,
-    pointLimit.value.minValueLimit,
-    pointLimit.value.maxValueLimit
-  );
-  if (!isSuccess) {
-    ElMessage({
-      message: "修改失败!",
-      type: "error",
-    });
-  } else {
-    ElMessage({
-      message: "修改成功!",
-      type: "success",
-    });
+  try {
+    const isSuccess = await editPointLimit(
+      props.deviceName,
+      props.pointCode,
+      pointLimit.value.minValueLimit,
+      pointLimit.value.maxValueLimit
+    );
+    if (isSuccess) {
+      ElMessage({
+        message: "修改成功!",
+        type: "success",
+      });
+    }
+  } catch (error) {
+    console.error('Edit point limit failed:', error);
   }
 };
 
-onMounted(async () => {
+const loadLimits = async () => {
   const limit = await getPointLimit(props.deviceName, props.pointCode);
   pointLimit.value.maxValueLimit = limit.maxValueLimit;
   pointLimit.value.minValueLimit = limit.minValueLimit;
+};
+
+watch(() => props.active, (newVal) => {
+  if (newVal) {
+    loadLimits();
+  }
+}, { immediate: true });
+
+// 监听测点或设备变化，重新加载数据
+watch([() => props.deviceName, () => props.pointCode], () => {
+  if (props.active) {
+    loadLimits();
+  }
 });
 </script>
 

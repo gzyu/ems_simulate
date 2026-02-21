@@ -31,6 +31,7 @@ from src.device.protocol.dlt645_handler import DLT645ServerHandler, DLT645Client
 from src.device.core.point.point_calculator import PointCalculator
 from src.enums.point_data import SimulateMethod, Yc, Yx, Yt, Yk, DeviceType, BasePoint
 from src.enums.modbus_def import ProtocolType
+from src.enums.points.change_tracker import ChangeSource
 
 
 class Device:
@@ -311,13 +312,25 @@ class Device:
         """异步读取单个测点的值"""
         return await self.point_operator.read_single_point_async(point_code)
 
-    def editPointData(self, point_code: str, real_value: float) -> bool:
+    def editPointData(
+        self, 
+        point_code: str, 
+        real_value: float,
+        source: Optional[ChangeSource] = None,
+        detail: Optional[str] = None
+    ) -> bool:
         """编辑测点值"""
-        return self.point_operator.edit_value(point_code, real_value)
+        return self.point_operator.edit_value(point_code, real_value, source, detail)
 
-    async def edit_point_data_async(self, point_code: str, real_value: float) -> bool:
+    async def edit_point_data_async(
+        self, 
+        point_code: str, 
+        real_value: float,
+        source: Optional[ChangeSource] = None,
+        detail: Optional[str] = None
+    ) -> bool:
         """异步编辑测点值"""
-        return await self.point_operator.edit_value_async(point_code, real_value)
+        return await self.point_operator.edit_value_async(point_code, real_value, source, detail)
 
     def edit_point_metadata(self, point_code: str, metadata: dict) -> bool:
         """编辑测点元数据"""
@@ -470,7 +483,8 @@ class Device:
     ) -> tuple[List[List[str]], int]:
         # 对于 IEC104 客户端，在获取表格数据前同步 c104.Point 的值到内部点
         if self.protocol_type == ProtocolType.Iec104Client and self.protocol_handler:
-            self._sync_iec104_client_values(slave_id)
+            if self.protocol_handler.is_running:
+                self._sync_iec104_client_values(slave_id)
 
         # Determine if we should mask errors (only for Client devices)
         mask_error = self.protocol_type in [

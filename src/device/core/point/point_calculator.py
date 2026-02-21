@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from src.device.core.point.point_manager import PointManager
 from src.data.service.point_mapping_service import PointMappingService
 from src.enums.points.base_point import BasePoint
+from src.enums.points.change_tracker import ChangeSource, track_change, capture_context, restore_context, ChangeContext
 from src.log import log
 
 
@@ -180,11 +181,23 @@ class PointCalculator:
         if not mapping_ids:
              log.warning(f"Sender {sender.code} (ID: {sender_id}) not found in sender_map. Known IDs: {list(self._sender_map.keys())}")
 
-        for mapping_id in set(mapping_ids): # 去重
-            self._executor.submit(self._execute_calculation, mapping_id)
+        # 捕获当前上下文 (可能是 PROTOCOL, MANUAL 或 SIMULATION)
+        context_snapshot = capture_context()
 
-    def _execute_calculation(self, mapping_id: int):
+        for mapping_id in set(mapping_ids): # 去重
+            self._executor.submit(self._execute_calculation, mapping_id, context_snapshot)
+
+    def _execute_calculation(self, mapping_id: int, context: Optional[ChangeContext] = None):
         """执行计算"""
+        # 如果提供了上下文，先还原它
+        if context:
+            with restore_context(context):
+                self._do_execute_calculation(mapping_id)
+        else:
+            self._do_execute_calculation(mapping_id)
+
+    def _do_execute_calculation(self, mapping_id: int):
+        """实际计算逻辑"""
         mapping = next((m for m in self._mappings if m['id'] == mapping_id), None)
         if not mapping:
             log.error(f"Mapping {mapping_id} not found")
@@ -239,26 +252,35 @@ class PointCalculator:
                 # 只有值变化且差异够大时才更新，避免无限循环
                 current_val = target_point.real_value if hasattr(target_point, 'real_value') else target_point.value
                 
-                # 尝试将 result 转为 float 比较
-                try:
-                    res_float = float(result)
-                    cur_float = float(current_val)
-                    if abs(cur_float - res_float) > 1e-6:
-                        if hasattr(target_point, 'set_real_value'):
-                            target_point.set_real_value(res_float)
-                        else:
-                            target_point.value = int(res_float)
-                except (ValueError, TypeError):
-                    # 如果不是数字，直接比较
-                    if current_val != result:
-                         if hasattr(target_point, 'set_real_value'):
-                            target_point.set_real_value(result)
-                         else:
-                            # 尽力而为
-                            try: 
-                                target_point.value = int(result)
-                            except:
-                                pass
+                def apply_update():
+                    # 尝试将 result 转为 float 比较
+                    try:
+                        res_float = float(result)
+                        cur_float = float(current_val)
+                        if abs(cur_float - res_float) > 1e-6:
+                            if hasattr(target_point, 'set_real_value'):
+                                target_point.set_real_value(res_float)
+                            else:
+                                target_point.value = int(res_float)
+                    except (ValueError, TypeError):
+                        # 如果不是数字，直接比较
+                        if current_val != result:
+                             if hasattr(target_point, 'set_real_value'):
+                                target_point.set_real_value(result)
+                             else:
+                                # 尽力而为
+                                try: 
+                                    target_point.value = int(result)
+                                except:
+                                    pass
+
+                # 性能优化：仅当开启追溯时才进入上下文
+                if target_point.change_tracking_enabled:
+                    with track_change(ChangeSource.MAPPING, f"映射计算 mapping_id={mapping_id}, formula={formula}"):
+                        apply_update()
+                else:
+                    apply_update()
+                
                 log.info(f"Setting point {target_point.code} to {result}")
             else:
                 log.error(f"Calculation result {result} is not a number")

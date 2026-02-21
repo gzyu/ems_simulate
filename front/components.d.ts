@@ -64,6 +64,7 @@ declare module 'vue' {
     FloatRegister: typeof import('./src/components/register/FloatRegister.vue')['default']
     LongRegister: typeof import('./src/components/register/LongRegister.vue')['default']
     MessageViewDialog: typeof import('./src/components/device/MessageViewDialog.vue')['default']
+    PointChangeHistory: typeof import('./src/components/point/PointChangeHistory.vue')['default']
     PointMappingConfig: typeof import('./src/components/point/PointMappingConfig.vue')['default']
     PointSimulate: typeof import('./src/components/point/PointSimulate.vue')['default']
     PointSimulator: typeof import('./src/components/point/PointSimulator.vue')['default']

@@ -340,21 +340,25 @@ const handleSearch = (slave: number) => {
 };
 
 const resetPoint = async () => {
-  if (await resetPointData(routeName.value)) {
-    ElMessage.success("重置成功");
-    handleSearch(currentSlaveId.value);
-  } else {
-    ElMessage.error("重置失败");
+  try {
+    if (await resetPointData(routeName.value)) {
+      ElMessage.success("重置成功");
+      handleSearch(currentSlaveId.value);
+    }
+  } catch (e) {
+    console.error('重置测点失败:', e);
   }
 };
 
 const handleClearPoints = async () => {
-  const deletedCount = await clearPoints(routeName.value, currentSlaveId.value);
-  if (deletedCount >= 0) {
-    ElMessage.success(`清空成功，共删除 ${deletedCount} 个测点`);
-    handleTableRefresh();
-  } else {
-    ElMessage.error("清空测点失败");
+  try {
+    const deletedCount = await clearPoints(routeName.value, currentSlaveId.value);
+    if (deletedCount >= 0) {
+      ElMessage.success(`清空成功，共删除 ${deletedCount} 个测点`);
+      handleTableRefresh();
+    }
+  } catch (e) {
+    console.error('清空测点失败:', e);
   }
 };
 
@@ -394,13 +398,9 @@ const handleDeleteSlave = async (slaveId: number) => {
       setTimeout(() => {
         isInternalSwitch.value = false;
       }, 100);
-
-    } else {
-      ElMessage.error("删除从机失败");
     }
   } catch (e) {
-    console.error(e);
-    ElMessage.error("删除从机出错");
+    console.error('删除从机失败:', e);
   }
 };
 
@@ -600,13 +600,9 @@ const handleBatchRead = async () => {
       );
       
       readProgress.value = 100;
-    } else {
-      progressMessage.value = "批量读取失败";
-      ElMessage.error("批量读取失败");
     }
   } catch (e) {
-    console.error(e);
-    ElMessage.error("批量读取过程中出错");
+    console.error('批量读取失败:', e);
     progressMessage.value = "读取出错";
   } finally {
     setTimeout(() => {
@@ -682,8 +678,7 @@ const handleSinglePointRead = async () => {
     }
 
   } catch (e) {
-    console.error(e);
-    ElMessage.error("逐点读取过程中出错");
+    console.error('逐点读取失败:', e);
   } finally {
     if (cancelRead.value) {
       isReading.value = false;

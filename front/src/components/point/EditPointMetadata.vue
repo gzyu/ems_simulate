@@ -102,9 +102,12 @@ import { getPointInfo, editPointMetadata } from '@/api/deviceApi';
 interface Props {
   deviceName: string;
   pointCode: string;
+  active?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  active: true
+});
 const emit = defineEmits(['update-success']);
 
 const metadataForm = reactive({
@@ -146,23 +149,24 @@ const saveMetadata = async () => {
     if (result) {
       ElMessage.success('测点属性已更新');
       emit('update-success', metadataForm.code); // 通知上层编码可能已变
-    } else {
-      ElMessage.error('更新失败');
     }
   } catch (error: any) {
-    ElMessage.error('更新失败: ' + error.message);
+    console.error('更新失败:', error);
   }
 };
 
-// 监听 pointCode 变化，重新加载数据
-watch(() => props.pointCode, (newCode) => {
-  if (newCode) {
+// 监听激活状态，激活时加载数据
+watch(() => props.active, (newVal) => {
+  if (newVal) {
     loadPointInfo();
   }
 }, { immediate: true });
 
-onMounted(() => {
-  loadPointInfo();
+// 监听测点或设备变化，如果处于激活状态则重新加载数据
+watch([() => props.deviceName, () => props.pointCode], (newVal) => {
+  if (newVal[0] && newVal[1] && props.active) {
+    loadPointInfo();
+  }
 });
 </script>
 

@@ -4,6 +4,7 @@ from typing import Dict, List, Union
 
 from src.device.simulator.point_simulator import PointSimulator
 from src.enums.point_data import SimulateMethod, Yc, Yx
+from src.enums.points.change_tracker import ChangeSource, track_change
 from src.device.simulator.log import log
 
 
@@ -101,20 +102,48 @@ class SimulationController:
     def _run_simulation(self):
         """单线程模拟循环"""
         log.info(f"模拟线程启动, 模拟测点个数: {len(self.points)}")
+        # 获取设备本地地址信息
+        from src.enums.modbus_def import ProtocolType
+        if self.device.protocol_type in (ProtocolType.ModbusRtu, ProtocolType.ModbusRtuOverTcp):
+            local_addr = self.device.serial_port or "未知串口"
+        else:
+            local_addr = f"{self.device.ip}:{self.device.port}"
         while not self._stop_event.is_set():
             for point_simulator in self.points.values():
                 if point_simulator.is_running and not self._stop_event.is_set():
-                    point_simulator.simulate()
-                    if isinstance(point_simulator.point, Yc):
-                        self.device.editPointData(
-                            point_simulator.point.code, point_simulator.point.real_value
-                        )
+                    point = point_simulator.point
+                    
+                    # 性能优化：仅当开启追溯时才进入上下文
+                    if point.change_tracking_enabled:
+                        with track_change(ChangeSource.SIMULATION, f"自动模拟 {point.code}", local_addr):
+                            self._perform_point_simulation(point_simulator)
                     else:
-                        self.device.editPointData(
-                            point_simulator.point.code, point_simulator.point.value
-                        )
+                        self._perform_point_simulation(point_simulator)
             time.sleep(1)  # 适当降低CPU占用
+
+    def _perform_point_simulation(self, point_simulator: PointSimulator):
+        """执行单个点的模拟逻辑"""
+        point_simulator.simulate()
+        try:
+            if isinstance(point_simulator.point, Yc):
+                self.device.editPointData(
+                    point_simulator.point.code, 
+                    point_simulator.point.real_value,
+                    source=ChangeSource.SIMULATION,
+                    detail=f"自动模拟 {point_simulator.point.code}"
+                )
+            else:
+                self.device.editPointData(
+                    point_simulator.point.code, 
+                    point_simulator.point.value,
+                    source=ChangeSource.SIMULATION,
+                    detail=f"自动模拟 {point_simulator.point.code}"
+                )
+        except ValueError as e:
+            # 忽略模拟超出范围异常，避免停止后续测点的模拟
+            pass
 
     def is_simulation_running(self) -> bool:
         """检查模拟线程是否运行"""
         return self._simulation_thread is not None and self._simulation_thread.is_alive()
+
