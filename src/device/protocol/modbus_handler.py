@@ -522,7 +522,16 @@ class ModbusClientHandler(ClientHandler):
                     ),
                     self._loop
                 )
-                return future.result(timeout=2.0)
+                try:
+                    return future.result(timeout=2.0)
+                except concurrent.futures.TimeoutError:
+                    if self._log:
+                        self._log.warning(f"写入测试超时: {point.code}")
+                    return False
+                except Exception as e:
+                    if self._log:
+                        self._log.error(f"写入测点 {point.code} 失败: {e}")
+                    return False
             return False
         else:
             self._client.write_value_by_address(

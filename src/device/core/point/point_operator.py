@@ -223,16 +223,19 @@ class PointOperator:
             self._pm.code_map[new_code] = self._pm.code_map.pop(point_code)
             point.code = new_code
 
-        # 3. 如果配置发生变更，重新将当前值写入协议处理器
-        if need_resync and current_real_value is not None and self._handler:
+        # 3. 如果配置发生变更，并且点位支持写入（遥控/遥调），重新将当前值写入协议处理器
+        if need_resync and current_real_value is not None and self._handler and isinstance(point, (Yk, Yt)):
             try:
                 # 使用新的配置重新计算并写入
                 if point.set_real_value(current_real_value):
-                    self._handler.write_value(point, point.value)
-                    self._log.info(f"测点 {point.code} 元数据更新后已重新同步值到协议处理器")
+                    result = self._handler.write_value(point, point.value)
+                    if result:
+                        self._log.info(f"测点 {point.code} 元数据更新后已重新同步值到协议处理器")
+                    else:
+                        self._log.warning(f"重新同步测点 {point.code} 值失败: 编辑完配置同步失败")
             except Exception as e:
                 self._log.warning(f"重新同步测点 {point.code} 值失败: {e}")
-
+                
         # 4. 更新数据库
         return PointService.update_point_metadata(point_code, metadata)
 

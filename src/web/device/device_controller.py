@@ -173,10 +173,10 @@ async def edit_point_data(req: PointEditDataRequest, request: Request):
             success = await device.edit_point_data_async(req.point_code, req.point_value)
         finally:
             change_client_info_ctx.reset(token)
-        return BaseResponse(
-            message="编辑测点数据成功!" if success else "编辑测点数据失败!",
-            data=success
-        )
+        if success:
+            return BaseResponse(message="编辑测点数据成功!", data=True)
+        else:
+            return BaseResponse(code=400, message="编辑测点数据失败!", data=False)
     except Exception as e:
         log.error(f"编辑测点数据失败: {e}")
         return BaseResponse(code=500, message=f"编辑测点数据失败: {e}!", data=False)
@@ -188,10 +188,10 @@ async def edit_point_limit(req: PointLimitEditRequest, request: Request):
     try:
         device = get_device(req.device_name, request)
         success = device.edit_point_limit(req.point_code, req.min_value_limit, req.max_value_limit)
-        return BaseResponse(
-            message="编辑测点限制值数据成功!" if success else "编辑测点限制值数据失败!",
-            data=success
-        )
+        if success:
+            return BaseResponse(message="编辑测点限制值数据成功!", data=True)
+        else:
+            return BaseResponse(code=400, message="编辑测点限制值数据失败!", data=False)
     except Exception as e:
         log.error(f"编辑测点限制值数据失败: {e}")
         return BaseResponse(code=500, message=f"编辑测点限制值数据失败: {e}!", data=False)
@@ -237,10 +237,10 @@ async def set_single_point_simulate_method(req: SimulateMethodSetRequest, reques
     try:
         device = get_device(req.device_name, request)
         success = device.setSinglePointSimulateMethod(req.point_code, req.simulate_method)
-        return BaseResponse(
-            message="设置单点模拟方法成功!" if success else "设置单点模拟方法失败!",
-            data=success
-        )
+        if success:
+            return BaseResponse(message="设置单点模拟方法成功!", data=True)
+        else:
+            return BaseResponse(code=400, message="设置单点模拟方法失败!", data=False)
     except Exception as e:
         log.error(f"设置单点模拟方法失败: {e}")
         return BaseResponse(code=500, message=f"设置单点模拟方法失败: {e}!", data=False)
@@ -252,10 +252,10 @@ async def set_single_point_step(req: SimulateStepSetRequest, request: Request):
     try:
         device = get_device(req.device_name, request)
         success = device.setSinglePointStep(req.point_code, req.step)
-        return BaseResponse(
-            message="设置单点模拟步长成功!" if success else "设置单点模拟步长失败!",
-            data=success
-        )
+        if success:
+            return BaseResponse(message="设置单点模拟步长成功!", data=True)
+        else:
+            return BaseResponse(code=400, message="设置单点模拟步长失败!", data=False)
     except Exception as e:
         log.error(f"设置单点模拟步长失败: {e}")
         return BaseResponse(code=500, message=f"设置单点模拟步长失败: {e}!", data=False)
@@ -282,10 +282,10 @@ async def set_point_simulation_range(req: SimulateRangeSetRequest, request: Requ
     try:
         device = get_device(req.device_name, request)
         success = device.setPointSimulationRange(req.point_code, req.min_value, req.max_value)
-        return BaseResponse(
-            message="设置点模拟范围成功!" if success else "设置点模拟范围失败!",
-            data=success
-        )
+        if success:
+            return BaseResponse(message="设置点模拟范围成功!", data=True)
+        else:
+            return BaseResponse(code=400, message="设置点模拟范围失败!", data=False)
     except Exception as e:
         log.error(f"设置点模拟范围失败: {e}")
         return BaseResponse(code=500, message=f"设置点模拟范围失败: {e}!", data=False)
@@ -314,10 +314,10 @@ async def edit_point_metadata(req: PointMetadataEditRequest, request: Request):
     try:
         device = get_device(req.device_name, request)
         success = device.edit_point_metadata(req.point_code, req.metadata)
-        return BaseResponse(
-            message="编辑测点属性成功!" if success else "编辑测点属性失败!",
-            data=success
-        )
+        if success:
+            return BaseResponse(message="编辑测点属性成功!", data=True)
+        else:
+            return BaseResponse(code=400, message="编辑测点属性失败!", data=False)
     except Exception as e:
         log.error(f"编辑测点属性失败: {e}")
         return BaseResponse(code=500, message=f"编辑测点属性失败: {e}!", data=False)
@@ -362,10 +362,10 @@ async def start_auto_read(req: DeviceInfoRequest, request: Request):
     try:
         device = get_device(req.device_name, request)
         success = device.start_auto_read()
-        return BaseResponse(
-            message="启动自动读取成功!" if success else "自动读取已在运行中!",
-            data=success
-        )
+        if success:
+            return BaseResponse(message="启动自动读取成功!", data=True)
+        else:
+            return BaseResponse(code=400, message="自动读取已在运行中!", data=False)
     except KeyError:
         return BaseResponse(code=404, message=f"设备 {req.device_name} 不存在!", data=False)
     except Exception as e:

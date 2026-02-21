@@ -197,7 +197,7 @@ const loadPointInfo = async () => {
     }
   } catch (error) {
     console.error('加载点信息失败:', error);
-    ElMessage.error('加载点信息失败');
+    // error message is handled by global interceptor
   }
 };
 
@@ -240,7 +240,7 @@ const saveSettings = async () => {
     }
   } catch (error) {
     console.error('保存设置失败:', error);
-    ElMessage.error('保存设置失败');
+    // error message is handled by global interceptor
   }
 };
 

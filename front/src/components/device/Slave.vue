@@ -544,15 +544,10 @@ const handleManualRead = async () => {
   }
 
   // 检查设备连接状态
-  try {
-    const deviceInfo = await getDeviceInfo(routeName.value);
-    const serverStatus = deviceInfo?.get("server_status");
-    if (!serverStatus) {
-      ElMessage.error("设备未连接，请先启动设备后再进行读取操作");
-      return;
-    }
-  } catch (e) {
-    ElMessage.error("无法获取设备状态，请检查后端服务");
+  const deviceInfo = await getDeviceInfo(routeName.value);
+  const serverStatus = deviceInfo?.get("server_status");
+  if (!serverStatus) {
+    ElMessage.error("设备未连接，请先启动设备后再进行读取操作");
     return;
   }
 

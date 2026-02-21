@@ -407,7 +407,8 @@ const handleReadPoint = async (pointCode: string) => {
       ElMessage.error('读取失败，请检查连接状态');
     }
   } catch (e) {
-    ElMessage.error('读取失败');
+    console.error('读取失败:', e);
+    // error message is handled by global interceptor
   } finally {
     readingPoints[pointCode] = false;
   }
@@ -442,7 +443,6 @@ const handleDeletePoint = async (pointCode: string) => {
       ElMessage.error('删除失败');
     }
   } catch (e) {
-    ElMessage.error('删除失败');
   } finally {
     deletingPoints[pointCode] = false;
   }

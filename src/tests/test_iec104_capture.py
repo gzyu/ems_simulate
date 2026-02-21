@@ -8,7 +8,9 @@ from src.config.log.logger import Log
 # Configure logger just in case
 logger = Log()
 
-def test_capture():
+import asyncio
+
+async def test_capture():
     print("Starting IEC104 Capture Test...")
     
     # 1. Start Server
@@ -22,11 +24,11 @@ def test_capture():
     client = IEC104Client(ip="127.0.0.1", port=2499, common_address=1)
     print("Connecting client...")
     
-    if client.connect():
+    if await client.connect():
         print("Client connected!")
         
         # Give some time for startup sequence (STARTDT etc)
-        time.sleep(2)
+        await asyncio.sleep(2)
 
         # 3. Check for handshake messages
         client_msgs = client.get_captured_messages()
@@ -41,7 +43,7 @@ def test_capture():
         # 4. Perform Data Transmission (Server sets value -> Client receives)
         print("Setting point value on server...")
         server.set_point_value(io_address=11, value=12.34, frame_type=0)
-        time.sleep(1)
+        await asyncio.sleep(1)
         
         # Check client capture update
         client_msgs_after = client.get_captured_messages()
@@ -60,4 +62,4 @@ def test_capture():
     print("Test Finished")
 
 if __name__ == "__main__":
-    test_capture()
+    asyncio.run(test_capture())

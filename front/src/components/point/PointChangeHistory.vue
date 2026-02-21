@@ -114,7 +114,8 @@ const loadHistory = async () => {
       }
     }
   } catch (error: any) {
-    ElMessage.error('加载变更历史失败: ' + error.message);
+    console.error('加载变更历史失败:', error);
+    // error message is handled by global interceptor
   } finally {
     loading.value = false;
   }
@@ -128,7 +129,8 @@ const handleConfigChange = async () => {
       loadHistory();
     }
   } catch (error: any) {
-    ElMessage.error('更新配置失败: ' + error.message);
+    console.error('更新配置失败:', error);
+    // error message is handled by global interceptor
   }
 };
 
@@ -145,7 +147,8 @@ const handleClear = () => {
         loadHistory();
       }
     } catch (error: any) {
-      ElMessage.error('清空失败: ' + error.message);
+      console.error('清空失败:', error);
+      // error message is handled by global interceptor
     }
   }).catch(() => {});
 };

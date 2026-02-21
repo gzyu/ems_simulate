@@ -180,6 +180,42 @@ class Decode:
         return cls.get_info(decode).pack_format
 
     @classmethod
+    def get_limits_by_code(cls, decode: str, mul_coe: float = 1.0, add_coe: float = 0.0) -> tuple[float, float]:
+        """根据解析码获取寄存器真实极值 (受乘法系数和加法系数影响)
+        
+        Args:
+            decode: 解析码字符串
+            mul_coe: 乘法系数
+            add_coe: 加法系数
+            
+        Returns:
+            (max_limit, min_limit)
+        """
+        decode_type = cls.get_decode_type(decode)
+        
+        if decode_type == DecodeType.SignedInt:
+            raw_min, raw_max = -32768, 32767
+        elif decode_type == DecodeType.UnsignedInt:
+            raw_min, raw_max = 0, 65535
+        elif decode_type == DecodeType.SignedLong:
+            raw_min, raw_max = -2147483648, 2147483647
+        elif decode_type == DecodeType.UnsignedLong:
+            raw_min, raw_max = 0, 4294967295
+        elif decode_type == DecodeType.Float: # Include Float / Double as 32/64
+            # 使用一个较大的合理浮点边界，因为完全使用 e38 前端表单可能不便
+            raw_min, raw_max = -999999999.0, 999999999.0
+        else:
+            raw_min, raw_max = -9999999.0, 9999999.0  # fallback
+            
+        calc_min = raw_min * mul_coe + add_coe
+        calc_max = raw_max * mul_coe + add_coe
+        
+        if mul_coe < 0:
+            return calc_min, calc_max  # calc_min(由raw_max得出) 是 max_limit, calc_max(由raw_min得出) 是 min_limit，已倒置
+        
+        return calc_max, calc_min
+
+    @classmethod
     def pack_value(cls, byteorder: str, value) -> bytes:
         """将值打包为字节（支持字内反序）
         

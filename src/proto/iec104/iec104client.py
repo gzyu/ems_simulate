@@ -1,6 +1,7 @@
 from typing import List, Optional, Callable, Dict, Any
 import c104
 import time
+import asyncio
 from src.proto.iec104.log import log
 from src.device.core.message.message_capture import MessageCapture
 
@@ -60,7 +61,7 @@ class IEC104Client:
         """清空捕获的报文"""
         self.message_capture.clear()
 
-    def connect(self, timeout: int = 10) -> bool:
+    async def connect(self, timeout: int = 5) -> bool:
         """
         连接到IEC 104服务器
         :param timeout: 连接超时时间(秒)
@@ -72,13 +73,15 @@ class IEC104Client:
             while not self.is_connected:
                 if time.time() - start_time > timeout:
                     log.error("连接服务器超时")
+                    self.client.stop()
                     return False
-                time.sleep(0.1)
+                await asyncio.sleep(0.1)
 
             log.info(f"成功连接到服务器 {self.ip}:{self.port}")
             return True
         except Exception as e:
             log.error(f"连接服务器失败: {e}")
+            self.client.stop()
             return False
 
     def disconnect(self):
@@ -253,18 +256,22 @@ class IEC104Client:
 
 
 if __name__ == "__main__":
-    # 示例用法
-    client = IEC104Client(ip="10.8.0.102", port=2404, common_address=1)
+    import asyncio
+    async def main():
+        # 示例用法
+        client = IEC104Client(ip="10.8.0.102", port=2404, common_address=1)
 
-    # 设置回调函数
-    def on_data_received(point):
-        print(f"收到数据更新 - IOA: {point.io_address}, 值: {point.value}")
+        # 设置回调函数
+        def on_data_received(point):
+            print(f"收到数据更新 - IOA: {point.io_address}, 值: {point.value}")
 
-    if client.connect():
-        client.station.add_point(io_address=16385, type=c104.Type.M_ME_NC_1)
-        while True:
-            # 读取遥测点(IOA=1)
-            value = client.read_point(io_address=16385, frame_type=0)
-            print(f"IOA 16385 的值为: {value}")
-            # 保持连接一段时间
-            time.sleep(1)
+        if await client.connect():
+            client.station.add_point(io_address=16385, type=c104.Type.M_ME_NC_1)
+            while True:
+                # 读取遥测点(IOA=1)
+                value = client.read_point(io_address=16385, frame_type=0)
+                print(f"IOA 16385 的值为: {value}")
+                # 保持连接一段时间
+                await asyncio.sleep(1)
+
+    asyncio.run(main())

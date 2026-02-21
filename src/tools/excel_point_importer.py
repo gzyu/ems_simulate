@@ -15,6 +15,7 @@ from src.data.model.point_yx import PointYx
 from src.data.model.point_yk import PointYk
 from src.data.model.point_yt import PointYt
 from src.data.log import log
+from src.enums.modbus_register import Decode
 
 
 class ExcelPointImporter:
@@ -156,6 +157,11 @@ class ExcelPointImporter:
                 for row in rows:
                     if not row[0]:  # 跳过空行
                         continue
+                    decode_code = str(row[5]) if row[5] else "0x41"
+                    mul_coe = float(row[6]) if row[6] else 1.0
+                    add_coe = float(row[7]) if row[7] else 0.0
+                    calc_max, calc_min = Decode.get_limits_by_code(decode_code, mul_coe, add_coe)
+                    
                     point = PointYc(
                         code=str(row[0]),
                         name=str(row[1]) if row[1] else "",
@@ -163,11 +169,11 @@ class ExcelPointImporter:
                         rtu_addr=int(row[2]) if row[2] else 1,
                         reg_addr=str(row[3]) if row[3] else "0x0000",
                         func_code=int(row[4]) if row[4] else 3,
-                        decode_code=str(row[5]) if row[5] else "0x41",
-                        mul_coe=float(row[6]) if row[6] else 1.0,
-                        add_coe=float(row[7]) if row[7] else 0.0,
-                        max_limit=float(row[8]) if row[8] else 9999999,
-                        min_limit=float(row[9]) if row[9] else -9999999,
+                        decode_code=decode_code,
+                        mul_coe=mul_coe,
+                        add_coe=add_coe,
+                        max_limit=float(row[8]) if row[8] is not None and str(row[8]).strip() != "" else calc_max,
+                        min_limit=float(row[9]) if len(row) > 9 and row[9] is not None and str(row[9]).strip() != "" else calc_min,
                     )
                     session.add(point)
                     self.yc_count += 1
@@ -225,6 +231,11 @@ class ExcelPointImporter:
                 for row in rows:
                     if not row[0]:
                         continue
+                    decode_code = str(row[5]) if row[5] else "0x41"
+                    mul_coe = float(row[6]) if row[6] else 1.0
+                    add_coe = float(row[7]) if row[7] else 0.0
+                    calc_max, calc_min = Decode.get_limits_by_code(decode_code, mul_coe, add_coe)
+                    
                     point = PointYt(
                         code=str(row[0]),
                         name=str(row[1]) if row[1] else "",
@@ -232,11 +243,11 @@ class ExcelPointImporter:
                         rtu_addr=int(row[2]) if row[2] else 1,
                         reg_addr=str(row[3]) if row[3] else "0x0000",
                         func_code=int(row[4]) if row[4] else 6,
-                        decode_code=str(row[5]) if row[5] else "0x41",
-                        mul_coe=float(row[6]) if row[6] else 1.0,
-                        add_coe=float(row[7]) if row[7] else 0.0,
-                        max_limit=float(row[8]) if row[8] else 9999999,
-                        min_limit=float(row[9]) if row[9] else -9999999,
+                        decode_code=decode_code,
+                        mul_coe=mul_coe,
+                        add_coe=add_coe,
+                        max_limit=float(row[8]) if len(row) > 8 and row[8] is not None and str(row[8]).strip() != "" else calc_max,
+                        min_limit=float(row[9]) if len(row) > 9 and row[9] is not None and str(row[9]).strip() != "" else calc_min,
                         # related_yc_id 需要后续通过 code 查找
                     )
                     session.add(point)

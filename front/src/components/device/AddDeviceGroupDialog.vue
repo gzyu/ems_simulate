@@ -145,7 +145,8 @@ const handleSubmit = async () => {
       emit('success');
       handleClose();
     } catch (e: any) {
-      ElMessage.error(e.message || '操作失败');
+      console.error(e.message || '操作失败');
+      // error message is handled by global interceptor
     } finally { loading.value = false; }
   });
 };

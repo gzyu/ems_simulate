@@ -215,7 +215,8 @@ const fetchDeviceGroupTree = async () => {
       });
     }
   } catch (error: any) {
-    ElMessage.error('获取设备组失败: ' + error.message);
+    console.error('获取设备组失败:', error);
+    // error message is handled by global interceptor
   }
 };
 
@@ -264,21 +265,15 @@ const handleGroupCommand = async (command: string, data: TreeNode) => {
 };
 
 const handleBatchOperation = async (groupId: number, operation: 'start' | 'stop' | 'reset') => {
-  try {
     await batchDeviceOperation(groupId, operation);
     ElMessage.success(`${operation === 'start' ? '启动' : '停止'}成功`);
-  } catch (error: any) {
-    ElMessage.error('操作失败: ' + error.message);
-  }
 };
 
 const handleDeleteGroup = async (data: TreeNode) => {
-  try {
     await ElMessageBox.confirm(`确定删除组 "${data.name}"？`, '提示', { type: 'warning' });
     await deleteDeviceGroup(data.id, false);
     ElMessage.success('成功');
     await fetchDeviceGroupTree();
-  } catch {}
 };
 
 const handleEditDevice = (data: TreeNode) => handleEditDeviceByName(data.name);
@@ -292,14 +287,12 @@ const handleEditDeviceByName = async (deviceName: string) => {
 
 const handleDeleteDevice = (data: TreeNode) => handleDeleteDeviceByName(data.name);
 const handleDeleteDeviceByName = async (deviceName: string) => {
-  try {
-    await ElMessageBox.confirm(`确定删除 "${deviceName}"？`, '提示', { type: 'warning' });
-    const channel = (await getChannelList()).find(c => c.name === deviceName);
-    if (channel) {
-      await deleteChannel(channel.id);
-      window.location.reload();
-    }
-  } catch {}
+  await ElMessageBox.confirm(`确定删除 "${deviceName}"？`, '提示', { type: 'warning' });
+  const channel = (await getChannelList()).find(c => c.name === deviceName);
+  if (channel) {
+    await deleteChannel(channel.id);
+    window.location.reload();
+  }
 };
 
 const handleDeviceAdded = async (deviceName: string, isEdit?: boolean, oldName?: string) => {

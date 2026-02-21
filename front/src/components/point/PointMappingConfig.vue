@@ -211,7 +211,7 @@ const fetchMapping = async () => {
         }
     } catch (error) {
         console.error(error);
-        ElMessage.error('获取映射信息失败');
+        // error message is handled by global interceptor
     } finally {
         loading.value = false;
     }
@@ -324,7 +324,7 @@ const saveMapping = async () => {
         fetchMapping();
     } catch (error) {
         console.error(error);
-        ElMessage.error('保存失败');
+        // error message is handled by global interceptor
     } finally {
         saving.value = false;
     }
@@ -341,7 +341,7 @@ const handleDeleteMapping = async () => {
         emit('update-success');
     } catch (error) {
         console.error(error);
-        ElMessage.error('删除失败');
+        // error message is handled by global interceptor
     }
 };
 

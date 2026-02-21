@@ -64,7 +64,7 @@ class IEC104Server:
         pass
         # self._on_step_command = self._default_step_command_handler
         # self._before_auto_transmit = self._default_before_auto_transmit
-        self._before_read = self._default_before_read
+        # self._before_read = self._default_before_read
 
     def add_monitoring_point(
         self, io_address, point_type=c104.Type.M_ME_NC_1, report_ms=1000
@@ -181,24 +181,25 @@ class IEC104Server:
             self.server.stop()
             log.info("IEC 104服务器已停止")
 
-    def run(self, timeout=30):
+    async def run(self, timeout=30):
         """
         运行服务器主循环
         :param timeout: 超时时间(秒)，默认30秒
         """
+        import asyncio
         # 等待客户端连接
         while not self.server.has_active_connections:
             print("等待客户端连接...")
-            time.sleep(1)
+            await asyncio.sleep(1)
 
-        time.sleep(1)
+        await asyncio.sleep(1)
 
         c = 0
         # 保持连接直到超时或连接断开
         while self.server.has_open_connections and c < timeout:
             c += 1
             print("保持连接中...")
-            time.sleep(1)
+            await asyncio.sleep(1)
 
     def isRunning(self) -> bool:
         """检查服务器是否运行中"""
@@ -315,13 +316,17 @@ class IEC104Server:
 
 
 if __name__ == "__main__":
-    # 创建服务器实例
-    server = IEC104Server(ip="0.0.0.0", port=2404, common_address=1)
+    import asyncio
+    async def main():
+        # 创建服务器实例
+        server = IEC104Server(ip="0.0.0.0", port=2404, common_address=1)
 
-    # 添加监控点(IOA=11)和命令点(IOA=12)
-    server.add_monitoring_point(io_address=11)
-    server.add_command_point(io_address=12)
+        # 添加监控点(IOA=11)和命令点(IOA=12)
+        server.add_monitoring_point(io_address=11)
+        server.add_command_point(io_address=12)
 
-    # 启动服务器并运行主循环
-    server.start()
-    server.run(timeout=30)
+        # 启动服务器并运行主循环
+        server.start()
+        await server.run(timeout=30)
+        
+    asyncio.run(main())

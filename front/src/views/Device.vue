@@ -166,7 +166,7 @@ const toggleDevice = async () => {
     }
   } catch (error: any) { 
     console.error(error);
-    ElMessage.error(error.message || "操作失败");
+    // error message is handled by global interceptor
   }
   finally { isDeviceProcessing.value = false; }
 };
@@ -188,7 +188,7 @@ const fetchDeviceInfo = async () => {
     simulationStatusStr.value = simuStatus === true ? "运行中" : "停止";
   } catch (error: any) { 
     console.error(error); 
-    ElMessage.error("获取设备信息失败: " + (error.message || "未知错误"));
+    // error message is handled by global interceptor
   }
 };
 

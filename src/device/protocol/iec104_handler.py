@@ -84,6 +84,14 @@ class IEC104ServerHandler(ServerHandler):
             return True
         return False
 
+    async def read_value_async(self, point: BasePoint) -> Any:
+        """异步读取测点值"""
+        return self.read_value(point)
+
+    async def write_value_async(self, point: BasePoint, value: Any) -> bool:
+        """异步写入测点值"""
+        return self.write_value(point, value)
+
     def add_points(self, points: List[BasePoint]) -> None:
         """添加测点到 IEC104 服务器"""
         if not self._server:
@@ -180,18 +188,18 @@ class IEC104ClientHandler(ClientHandler):
 
     async def start(self) -> bool:
         """启动客户端（连接服务器）"""
-        return self.connect()
+        return await self.connect()
 
     async def stop(self) -> bool:
         """停止客户端（断开连接）"""
         self.disconnect()
         return True
 
-    def connect(self) -> bool:
+    async def connect(self) -> bool:
         """连接到 IEC104 服务器"""
         try:
             if self._client:
-                is_connected = self._client.connect()
+                is_connected = await self._client.connect()
                 self._is_running = is_connected
                 return is_connected
             return False
@@ -285,6 +293,14 @@ class IEC104ClientHandler(ClientHandler):
             return False
             
         return False
+
+    async def read_value_async(self, point: BasePoint) -> Any:
+        """异步读取测点值"""
+        return self.read_value(point)
+
+    async def write_value_async(self, point: BasePoint, value: Any) -> bool:
+        """异步写入测点值"""
+        return self.write_value(point, value)
 
     def add_points(self, points: List[BasePoint]) -> None:
         """添加测点到 IEC104 客户端"""

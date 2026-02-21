@@ -68,10 +68,10 @@ class PointYc(Base):
         Float, server_default="0.0", comment="加系数"
     )
     max_limit: Mapped[float] = mapped_column(
-        Float, server_default="9999999", comment="上限值"
+        Float, comment="上限值"
     )
     min_limit: Mapped[float] = mapped_column(
-        Float, server_default="-9999999", comment="下限值"
+        Float, comment="下限值"
     )
     
     # IEC104 特定字段

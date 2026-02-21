@@ -11,6 +11,7 @@ from src.data.model.point_yk import PointYk, PointYkDict
 from src.data.model.point_yt import PointYt, PointYtDict
 from src.data.log import log
 from src.data.controller.db import local_session
+from src.enums.modbus_register import Decode
 
 
 def _format_reg_addr(addr: str) -> str:
@@ -311,6 +312,11 @@ class PointDao:
         try:
             with local_session() as session:
                 with session.begin():
+                    decode_code = point_data.get("decode_code", "0x41")
+                    mul_coe = point_data.get("mul_coe", 1.0)
+                    add_coe = point_data.get("add_coe", 0.0)
+                    calc_max, calc_min = Decode.get_limits_by_code(decode_code, mul_coe, add_coe)
+                    
                     point = PointYc(
                         channel_id=channel_id,
                         code=point_data["code"],
@@ -318,11 +324,11 @@ class PointDao:
                         rtu_addr=point_data.get("rtu_addr", 1),
                         reg_addr=_format_reg_addr(point_data["reg_addr"]),
                         func_code=point_data.get("func_code", 3),
-                        decode_code=point_data.get("decode_code", "0x41"),
-                        mul_coe=point_data.get("mul_coe", 1.0),
-                        add_coe=point_data.get("add_coe", 0.0),
-                        max_limit=point_data.get("max_limit", 9999999),
-                        min_limit=point_data.get("min_limit", -9999999),
+                        decode_code=decode_code,
+                        mul_coe=mul_coe,
+                        add_coe=add_coe,
+                        max_limit=point_data.get("max_limit", calc_max),
+                        min_limit=point_data.get("min_limit", calc_min),
                         enable=True
                     )
                     session.add(point)
@@ -384,6 +390,11 @@ class PointDao:
         try:
             with local_session() as session:
                 with session.begin():
+                    decode_code = point_data.get("decode_code", "0x41")
+                    mul_coe = point_data.get("mul_coe", 1.0)
+                    add_coe = point_data.get("add_coe", 0.0)
+                    calc_max, calc_min = Decode.get_limits_by_code(decode_code, mul_coe, add_coe)
+                    
                     point = PointYt(
                         channel_id=channel_id,
                         code=point_data["code"],
@@ -391,9 +402,11 @@ class PointDao:
                         rtu_addr=point_data.get("rtu_addr", 1),
                         reg_addr=_format_reg_addr(point_data["reg_addr"]),
                         func_code=point_data.get("func_code", 6),
-                        decode_code=point_data.get("decode_code", "0x41"),
-                        mul_coe=point_data.get("mul_coe", 1.0),
-                        add_coe=point_data.get("add_coe", 0.0),
+                        decode_code=decode_code,
+                        mul_coe=mul_coe,
+                        add_coe=add_coe,
+                        max_limit=point_data.get("max_limit", calc_max),
+                        min_limit=point_data.get("min_limit", calc_min),
                         enable=True
                     )
                     session.add(point)
@@ -437,6 +450,11 @@ class PointDao:
                 with session.begin():
                     for point_data in points_data_list:
                         if frame_type == 0:  # 遥测
+                            decode_code = point_data.get("decode_code", "0x41")
+                            mul_coe = point_data.get("mul_coe", 1.0)
+                            add_coe = point_data.get("add_coe", 0.0)
+                            calc_max, calc_min = Decode.get_limits_by_code(decode_code, mul_coe, add_coe)
+                            
                             point = PointYc(
                                 channel_id=channel_id,
                                 code=point_data["code"],
@@ -444,11 +462,11 @@ class PointDao:
                                 rtu_addr=point_data.get("rtu_addr", 1),
                                 reg_addr=_format_reg_addr(point_data["reg_addr"]),
                                 func_code=point_data.get("func_code", 3),
-                                decode_code=point_data.get("decode_code", "0x41"),
-                                mul_coe=point_data.get("mul_coe", 1.0),
-                                add_coe=point_data.get("add_coe", 0.0),
-                                max_limit=point_data.get("max_limit", 9999999),
-                                min_limit=point_data.get("min_limit", -9999999),
+                                decode_code=decode_code,
+                                mul_coe=mul_coe,
+                                add_coe=add_coe,
+                                max_limit=point_data.get("max_limit", calc_max),
+                                min_limit=point_data.get("min_limit", calc_min),
                                 enable=True
                             )
                         elif frame_type == 1:  # 遥信
@@ -474,6 +492,11 @@ class PointDao:
                                 enable=True
                             )
                         elif frame_type == 3:  # 遥调
+                            decode_code = point_data.get("decode_code", "0x41")
+                            mul_coe = point_data.get("mul_coe", 1.0)
+                            add_coe = point_data.get("add_coe", 0.0)
+                            calc_max, calc_min = Decode.get_limits_by_code(decode_code, mul_coe, add_coe)
+
                             point = PointYt(
                                 channel_id=channel_id,
                                 code=point_data["code"],
@@ -481,9 +504,11 @@ class PointDao:
                                 rtu_addr=point_data.get("rtu_addr", 1),
                                 reg_addr=_format_reg_addr(point_data["reg_addr"]),
                                 func_code=point_data.get("func_code", 6),
-                                decode_code=point_data.get("decode_code", "0x41"),
-                                mul_coe=point_data.get("mul_coe", 1.0),
-                                add_coe=point_data.get("add_coe", 0.0),
+                                decode_code=decode_code,
+                                mul_coe=mul_coe,
+                                add_coe=add_coe,
+                                max_limit=point_data.get("max_limit", calc_max),
+                                min_limit=point_data.get("min_limit", calc_min),
                                 enable=True
                             )
                         else:
