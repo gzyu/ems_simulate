@@ -217,7 +217,9 @@ onUnmounted(() => {
   .hex-data {
     font-family: 'Consolas', 'Monaco', monospace;
     font-size: 13px;
-    word-break: break-all;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
     color: var(--text-primary, #333);
   }
 

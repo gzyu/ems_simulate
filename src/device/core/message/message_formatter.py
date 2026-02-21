@@ -138,16 +138,23 @@ class MessageFormatter:
             elif is_iec104 and raw_hex:
                 description = IEC104MessageParser.parse(raw_hex)
 
+            # 原始16进制数据和长度
+            hex_data = msg.get("hex_string", msg.get("data", ""))
+            length = msg.get("length", 0)
+            if not length and hex_data:
+                # 从hex_data计算字节长度
+                length = len(hex_data.replace(" ", "")) // 2
+
             result.append({
                 "sequence_id": msg.get("sequence_id", 0),
                 "timestamp": msg.get("timestamp", 0),
                 "formatted_time": msg.get("time", msg.get("formatted_time", "")),
                 "direction": direction,
                 "msg_type": msg_type,
-                "hex_data": msg.get("hex_string", msg.get("data", "")),
+                "hex_data": hex_data,
                 "raw_hex": raw_hex,
                 "description": description,
-                "length": msg.get("length", 0),
+                "length": length,
             })
 
         # 按序号正序排列
