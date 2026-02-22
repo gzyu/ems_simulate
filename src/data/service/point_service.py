@@ -59,20 +59,20 @@ class PointService:
         return PointDao.get_rtu_addr_list(channel_id)
 
     @classmethod
-    def get_point_by_code(cls, code: str) -> Optional[dict]:
+    def get_point_by_code(cls, code: str, channel_id: Optional[int] = None) -> Optional[dict]:
         """根据编码获取测点"""
-        return PointDao.get_point_by_code(code)
+        return PointDao.get_point_by_code(code, channel_id)
 
     @classmethod
     def update_point_limit(
-        cls, grp_code: str, code: str, min_limit: float, max_limit: float
+        cls, grp_code: str, code: str, min_limit: float, max_limit: float, channel_id: Optional[int] = None
     ) -> bool:
         """更新测点限值"""
-        return PointDao.update_point_metadata(code, {"min_limit": min_limit, "max_limit": max_limit})
+        return PointDao.update_point_metadata(code, {"min_limit": min_limit, "max_limit": max_limit}, channel_id)
 
     @classmethod
     def update_point_metadata(
-        cls, code: str, metadata: dict
+        cls, code: str, metadata: dict, channel_id: Optional[int] = None
     ) -> bool:
         """更新测点元数据"""
-        return PointDao.update_point_metadata(code, metadata)
+        return PointDao.update_point_metadata(code, metadata, channel_id)

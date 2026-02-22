@@ -17,7 +17,7 @@ class Yx(BasePoint):
         self,
         rtu_addr: str = "0",
         address: str = "0x0000",
-        bit: str = "0",
+        bit: Optional[str | int] = None,
         func_code: int = 3,
         name: str = "",
         code: str = "",
@@ -36,7 +36,7 @@ class Yx(BasePoint):
             decode=decode,
         )
 
-        self._bit: int = int(bit)
+        self._bit: Optional[int] = int(bit) if bit is not None and str(bit) != "" else None
         self._hex_value: str = decimal_to_hex_formatted(self._value)
 
     def list(self):
@@ -59,11 +59,11 @@ class Yx(BasePoint):
     # ===== 遥信特有属性 =====
 
     @property
-    def bit(self) -> int:
+    def bit(self) -> Optional[int]:
         return self._bit
 
     @bit.setter
-    def bit(self, bit: int):
+    def bit(self, bit: Optional[int]):
         self._bit = bit
 
     @property
@@ -80,7 +80,10 @@ class Yx(BasePoint):
                 self._value = value
                 if isinstance(self.value, int):
                     self.hex_value = decimal_to_hex_formatted(value)
-                self._record_change(old_value, value)
+                
+                if self._change_tracking_enabled:   # 如果变更追踪已启用
+                    self._record_change(old_value, value)
+                
                 if self.is_send_signal:
                     self.value_changed.send(
                         old_point=self, related_point=self.related_point
@@ -91,7 +94,6 @@ class Yx(BasePoint):
     def set_real_value(self, real_value) -> bool:
         """设置遥信真实值（仅允许 0 或 1）"""
         if 0 <= int(real_value) <= 1:
-            self.real_value = int(real_value)
             self.value = int(real_value)
             return True
         else:

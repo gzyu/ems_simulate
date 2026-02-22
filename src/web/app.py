@@ -8,6 +8,7 @@ from src.web.channel.channel_controller import channel_router
 from src.web.device_group.device_group_controller import device_group_router
 from src.web.point.point_mapping import router as point_mapping_router
 from src.web.point.point_tree import router as point_tree_router
+from src.web.point.point_controller import point_router
 from src.device_controller import get_device_controller
 from src.web.schemas.schemas import BaseResponse
 from src.web.log import log
@@ -35,6 +36,7 @@ def create_app():
     app.include_router(device_group_router, prefix="")
     app.include_router(point_mapping_router, prefix="")
     app.include_router(point_tree_router, prefix="")
+    app.include_router(point_router, prefix="")
     return app
 
 

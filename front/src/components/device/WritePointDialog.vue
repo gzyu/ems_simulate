@@ -52,7 +52,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue';
 import { ElMessage } from 'element-plus';
-import { editPointData } from '@/api/deviceApi';
+import { editPointData } from '@/api/pointApi';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },

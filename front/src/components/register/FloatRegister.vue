@@ -51,7 +51,7 @@
 <script setup name="LongRegister" lang="ts">
 import { onMounted, ref, watch } from "vue";
 import {type FloatPointRegister } from "@/types/register";
-import { editPointData } from "@/api/deviceApi";
+import { editPointData } from "@/api/pointApi";
 import { ElMessage } from "element-plus";
 import 'element-plus/dist/index.css'
 

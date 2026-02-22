@@ -25,7 +25,7 @@
 
 <script setup name="SingleRegister" lang="ts">
 import { onMounted, ref, watch } from "vue";
-import { editPointLimit, getPointLimit } from "@/api/deviceApi";
+import { editPointLimit, getPointLimit } from "@/api/pointApi";
 import { ElMessage } from "element-plus";
 import "element-plus/dist/index.css";
 import type { PointLimit } from "@/types/point";

@@ -10,7 +10,14 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 from src.enums.point_data import SimulateMethod, Yc, Yx, Yt, Yk, BasePoint
 from src.enums.modbus_def import ProtocolType
 from src.enums.points.change_tracker import ChangeSource, track_change
+from src.device.protocol.base_handler import ClientHandler
 from src.data.service.point_service import PointService
+from src.data.dao.point_dao import PointDao
+from src.data.service.yc_service import YcService
+from src.data.service.yx_service import YxService
+from src.data.service.yk_service import YkService
+from src.data.service.yt_service import YtService
+from src.data.dao.channel_dao import ChannelDao
 
 if TYPE_CHECKING:
     from src.device.core.device import Device
@@ -40,6 +47,24 @@ class PointOperator:
         """获取日志器"""
         return self._device.log
 
+    def _get_client_info(self) -> str:
+        """获取作为客户端时的真实远程服务地址(IP:Port 或 串口号)"""
+        if isinstance(self._handler, ClientHandler):
+            if hasattr(self._device, 'serial_port') and self._device.serial_port:
+                return self._device.serial_port
+            return f"{self._device.ip}:{self._device.port}"
+        return ""
+
+    def _get_channel_id(self) -> int:
+        """获取当前设备对应的通道ID"""
+        channel = ChannelDao.get_channel_by_code(self._device.name)
+        if not channel:
+            channels = ChannelDao.get_all_channels()
+            channel = next((c for c in channels if c["name"] == self._device.name), None)
+        if channel:
+            return channel["id"]
+        raise ValueError(f"找不到设备 {self._device.name} 的通道信息")
+
     # ===== 测点值读写 =====
 
     def edit_value(
@@ -53,6 +78,9 @@ class PointOperator:
         point = self._pm.get_point_by_code(point_code)
         if not point:
             raise ValueError(f"未找到测点: {point_code}")
+
+        if isinstance(self._handler, ClientHandler) and isinstance(point, (Yc, Yx)):
+            raise ValueError(f"作为客户端时，只允许对遥控(Yk)和遥调(Yt)类测点进行写入操作")
 
         # 如果未指定来源，默认使用 MANUAL
         effective_source = source or ChangeSource.MANUAL
@@ -69,8 +97,10 @@ class PointOperator:
                     raise ValueError(f"测点 {point_code} 写入失败: {e}") from e
                 if not result:
                     raise ValueError(f"测点 {point_code} 协议写入失败，请检查配置或物理连接")
+                self._log.info(f"测点 {point_code} 写入成功: {real_value}")
                 return result
-        return True
+            else:
+                raise SystemError(f"测点 {point_code} 协议处理器未配置，无法写入")
 
     async def edit_value_async(
         self, 
@@ -84,12 +114,16 @@ class PointOperator:
         if not point:
             raise ValueError(f"未找到测点: {point_code}")
 
+        if isinstance(self._handler, ClientHandler) and isinstance(point, (Yc, Yx)):
+            raise SystemError(f"作为客户端时，只允许对遥控(Yk)和遥调(Yt)类测点进行操作")
+
         # 如果未指定来源，默认使用 MANUAL
         effective_source = source or ChangeSource.MANUAL
         effective_detail = detail or f"手动设置 {point_code}={real_value}"
 
         with track_change(effective_source, effective_detail):
             if not point.set_real_value(real_value):
+                self._log.error(f"测点 {point_code} 值 {real_value} 超出允许范围")
                 raise ValueError(f"测点 {point_code} 值 {real_value} 超出允许范围")
 
             if self._handler:
@@ -99,12 +133,16 @@ class PointOperator:
                     else:
                         result = self._handler.write_value(point, point.value)
                 except Exception as e:
+                    self._log.error(f"测点 {point_code} 写入失败: {e}")
                     raise ValueError(f"测点 {point_code} 写入失败: {e}") from e
                 if not result:
+                    self._log.error(f"测点 {point_code} 协议写入失败，请检查配置或物理连接")
                     raise ValueError(f"测点 {point_code} 协议写入失败，请检查配置或物理连接")
+                self._log.info(f"测点 {point_code} 写入成功: {real_value}")
                 return result
-
-        return True
+            else:
+                self._log.error(f"测点 {point_code} 协议处理器未配置，无法写入")
+                raise ValueError(f"测点 {point_code} 协议处理器未配置，无法写入")
 
     def read_single_point(self, point_code: str) -> Optional[float]:
         """读取单个测点的值
@@ -126,19 +164,18 @@ class PointOperator:
         try:
             value = self._handler.read_value(point)
             if value is not None:
-                with track_change(ChangeSource.CLIENT_READ, f"单点读取 {point_code}"):
+                with track_change(ChangeSource.CLIENT_READ, f"单点读取 {point_code}", self._get_client_info()):
                     point.value = value
                 point.is_valid = True
                 self._log.info(f"读取测点 {point_code} 成功: {value}")
-                return point.real_value if hasattr(point, 'real_value') else float(value)
+                return float(point.value) if getattr(point, 'bit', None) is not None else (point.real_value if hasattr(point, 'real_value') else float(value))
             else:
                 point.is_valid = False
                 self._log.info(f"读取测点 {point_code} 失败: {value}")
         except Exception as e:
             self._log.error(f"读取测点 {point_code} 失败: {e}")
             point.is_valid = False
-
-        return None
+            raise ValueError(f"读取测点 {point_code} 失败: {e}")
 
     async def read_single_point_async(self, point_code: str) -> Optional[float]:
         """异步读取单个测点的值
@@ -160,11 +197,11 @@ class PointOperator:
         try:
             value = await self._handler.read_value_async(point)
             if value is not None:
-                with track_change(ChangeSource.CLIENT_READ, f"异步单点读取 {point_code}"):
+                with track_change(ChangeSource.CLIENT_READ, f"异步单点读取 {point_code}", self._get_client_info()):
                     point.value = value
                 point.is_valid = True
                 self._log.info(f"异步读取测点 {point_code} 成功: {value}")
-                return point.real_value if hasattr(point, 'real_value') else float(value)
+                return float(point.value) if getattr(point, 'bit', None) is not None else (point.real_value if hasattr(point, 'real_value') else float(value))
             else:
                 point.is_valid = False
                 self._log.info(f"异步读取测点 {point_code} 失败: {value}")
@@ -204,6 +241,15 @@ class PointOperator:
             if old_decode != metadata["decode_code"]:
                 need_resync = True  # 解析码变更需要重新同步
 
+        if isinstance(point, (Yk, Yx)):
+            if "bit" in metadata:
+                old_bit = getattr(point, 'bit', None)
+                val = metadata["bit"]
+                new_bit = int(val) if val is not None and str(val) != "" else None
+                point.bit = new_bit
+                if old_bit != new_bit:
+                    need_resync = True
+
         if isinstance(point, (Yc, Yt)):
             if "mul_coe" in metadata and str(metadata["mul_coe"]) != "":
                 old_mul_coe = point.mul_coe
@@ -237,7 +283,12 @@ class PointOperator:
                 self._log.warning(f"重新同步测点 {point.code} 值失败: {e}")
                 
         # 4. 更新数据库
-        return PointService.update_point_metadata(point_code, metadata)
+        try:
+            channel_id = self._get_channel_id()
+            return PointService.update_point_metadata(point_code, metadata, channel_id)
+        except Exception as e:
+            self._log.error(f"更新测点元数据失败: {e}")
+            return False
 
     def edit_limit(
         self, point_code: str, min_value_limit: int, max_value_limit: int
@@ -249,9 +300,14 @@ class PointOperator:
 
         point.max_value_limit = max_value_limit
         point.min_value_limit = min_value_limit
-        return PointService.update_point_limit(
-            self._device.name, point_code, min_value_limit, max_value_limit
-        )
+        try:
+            channel_id = self._get_channel_id()
+            return PointService.update_point_limit(
+                self._device.name, point_code, min_value_limit, max_value_limit, channel_id
+            )
+        except Exception as e:
+            self._log.error(f"更新测点限值失败: {e}")
+            return False
 
     def get_point_data(self, point_code_list: List[str]) -> Optional[BasePoint]:
         """获取测点"""
@@ -277,12 +333,6 @@ class PointOperator:
             是否添加成功
         """
         try:
-            from src.data.dao.point_dao import PointDao
-            from src.data.service.yc_service import YcService
-            from src.data.service.yx_service import YxService
-            from src.data.service.yk_service import YkService
-            from src.data.service.yt_service import YtService
-
             protocol_type = self._device.protocol_type
 
             # 1. 写入数据库
@@ -417,8 +467,9 @@ class PointOperator:
         try:
             from src.data.dao.point_dao import PointDao
 
+            channel_id = self._get_channel_id()
             # 1. 从数据库删除
-            if not PointDao.delete_point_by_code(point_code):
+            if not PointDao.delete_point_by_code(point_code, channel_id):
                 return False
 
             # 2. 从测点管理器删除

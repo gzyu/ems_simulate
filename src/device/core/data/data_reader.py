@@ -65,6 +65,14 @@ class DataReader:
             return ChangeSource.CLIENT_READ
         return ChangeSource.INTERNAL
 
+    def _get_client_info(self) -> str:
+        """获取作为客户端时的真实远程服务地址(IP:Port 或 串口号)"""
+        if isinstance(self._handler, ClientHandler):
+            if hasattr(self._device, 'serial_port') and self._device.serial_port:
+                return self._device.serial_port
+            return f"{self._device.ip}:{self._device.port}"
+        return ""
+
     def get_slave_values(
         self, yc_list: List[Yc], yx_list: List[Yx]
     ) -> None:
@@ -81,7 +89,7 @@ class DataReader:
             try:
                 value = self._handler.read_value(point)
                 if value is not None:
-                    with track_change(self._get_change_source(), f"数据同步 {point.code}"):
+                    with track_change(self._get_change_source(), f"数据同步 {point.code}", self._get_client_info()):
                         point.value = value
                     point.is_valid = True
                 else:
@@ -141,7 +149,7 @@ class DataReader:
                     value = self._handler.read_value(point)
 
                 if value is not None:
-                    with track_change(change_source, f"异步数据同步 {point.code}"):
+                    with track_change(change_source, f"异步数据同步 {point.code}", self._get_client_info()):
                         point.value = value
                     point.is_valid = True
                     success_count += 1
@@ -339,7 +347,14 @@ class DataReader:
                 value = self._decode_registers(point_registers, decode_info)
 
                 if value is not None:
-                    with track_change(self._get_change_source(), f"批量数据同步 {point.code}"):
+                    bit_offset = getattr(point, "bit", None)
+                    if bit_offset is not None:
+                        try:
+                            value = int(bool((int(value) >> bit_offset) & 1))
+                        except (ValueError, TypeError):
+                            pass
+
+                    with track_change(self._get_change_source(), f"批量数据同步 {point.code}", self._get_client_info()):
                         point.value = value
                     point.is_valid = True
                 else:
@@ -436,14 +451,14 @@ class DataReader:
                                 raw_val = int(
                                     (float(real_val) - point.add_coe) / point.mul_coe
                                 )
-                                with track_change(ChangeSource.CLIENT_READ, f"IEC104客户端同步 {point.code}"):
+                                with track_change(ChangeSource.CLIENT_READ, f"IEC104客户端同步 {point.code}", self._get_client_info()):
                                     point.value = raw_val
                                 point.is_valid = True
                             except (ZeroDivisionError, TypeError) as e:
                                 self._log.error(f"Error decoding point {point.code}: {e}")
                                 point.is_valid = False
                         else:
-                            with track_change(ChangeSource.CLIENT_READ, f"IEC104客户端同步 {point.code}"):
+                            with track_change(ChangeSource.CLIENT_READ, f"IEC104客户端同步 {point.code}", self._get_client_info()):
                                 point.value = real_val
                             point.is_valid = True
                     else:

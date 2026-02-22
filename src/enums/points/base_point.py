@@ -10,6 +10,7 @@ from blinker import Signal
 from src.enums.points.change_tracker import (
     ChangeRecord, ChangeSource,
     get_current_source, get_current_detail,
+    get_current_client_info
 )
 
 
@@ -140,7 +141,10 @@ class BasePoint:
                 self._value = value
                 if isinstance(value, int):
                     self._hex_value = decimal_to_hex_formatted(value)
-                self._record_change(old_value, value)
+                
+                if self._change_tracking_enabled:   # 如果变更追踪已启用
+                    self._record_change(old_value, value)
+                
                 if self.is_send_signal:
                     self.value_changed.send(
                         self, old_point=self, related_point=self.related_point
@@ -213,9 +217,6 @@ class BasePoint:
 
     def _record_change(self, old_value, new_value, old_real_value=None, new_real_value=None) -> None:
         """记录一次测点值变更（从 ContextVar 读取变更原因）"""
-        if not self._change_tracking_enabled:
-            return
-        from src.enums.points.change_tracker import get_current_client_info
         source = get_current_source()
         detail = get_current_detail()
         client_info = get_current_client_info()

@@ -63,7 +63,7 @@ class YkService:
             return Yk(
                 rtu_addr=item["rtu_addr"],
                 address=process_hex_address(item["reg_addr"]),
-                bit=item["bit"] if item.get("bit") is not None else 0,
+                bit=item.get("bit"),
                 func_code=item["func_code"] if item.get("func_code") else 5,
                 name=item["name"],
                 code=item["code"],
@@ -78,7 +78,7 @@ class YkService:
             return Yk(
                 rtu_addr=1,
                 address=address,
-                bit=0,
+                bit=None,
                 name=item["name"],
                 code=item["code"],
                 value=0,
@@ -90,7 +90,7 @@ class YkService:
             return Yk(
                 rtu_addr=1,
                 address=transform(process_hex_address(item["reg_addr"])),
-                bit=item["bit"] if item.get("bit") is not None else 0,
+                bit=item.get("bit"),
                 func_code=item["func_code"] if item.get("func_code") else 5,
                 name=item["name"],
                 code=item["code"],

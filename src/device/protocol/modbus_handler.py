@@ -99,18 +99,42 @@ class ModbusServerHandler(ServerHandler):
         """读取测点值"""
         if self._server and hasattr(point, "func_code"):
             slave_id = point.rtu_addr
-            return self._server.getValueByAddress(
+            val = self._server.getValueByAddress(
                 point.func_code, slave_id, point.address, point.decode
             )
+            bit_offset = getattr(point, "bit", None)
+            if bit_offset is not None and val is not None:
+                try:
+                    return int(bool((int(val) >> bit_offset) & 1))
+                except (ValueError, TypeError):
+                    pass
+            return val
         return 0
 
     def write_value(self, point: BasePoint, value: Any) -> bool:
         """写入测点值"""
         if self._server and hasattr(point, "func_code"):
             slave_id = point.rtu_addr
+            write_val = value
+            bit_offset = getattr(point, "bit", None)
+            if bit_offset is not None:
+                cur_val = self._server.getValueByAddress(
+                    point.func_code, slave_id, point.address, point.decode
+                )
+                if cur_val is not None:
+                    try:
+                        cur_int = int(cur_val)
+                        if int(value):
+                            write_val = cur_int | (1 << bit_offset)
+                        else:
+                            write_val = cur_int & ~(1 << bit_offset)
+                    except (ValueError, TypeError):
+                        pass
+
             self._server.setValueByAddress(
-                point.func_code, slave_id, point.address, value, point.decode
+                point.func_code, slave_id, point.address, write_val, point.decode
             )
+            self._log.info(f"Modbus 客户端写入测点 {point.code} 成功: value={write_val}")
             return True
 
         return False
@@ -357,7 +381,7 @@ class ModbusClientHandler(ClientHandler):
                     self._loop
                 )
                 try:
-                    return future.result(timeout=1)  # 1秒超时
+                    val = future.result(timeout=1)  # 1秒超时
                 except Exception as e:
                     # 单个读取超时不断开连接，只记录日志
                     if self._log:
@@ -367,9 +391,17 @@ class ModbusClientHandler(ClientHandler):
                 return None
         else:
             # 同步客户端直接调用
-            return self._client.read_value_by_address(
+            val = self._client.read_value_by_address(
                 point.func_code, point.rtu_addr, point.address, point.decode
             )
+            
+        bit_offset = getattr(point, "bit", None)
+        if bit_offset is not None and val is not None:
+            try:
+                return int(bool((int(val) >> bit_offset) & 1))
+            except (ValueError, TypeError):
+                pass
+        return val
 
     async def read_value_async(self, point: BasePoint) -> Any:
         """异步读取测点值（用于 async 环境）"""
@@ -382,7 +414,7 @@ class ModbusClientHandler(ClientHandler):
         try:
             if is_async:
                 # 使用 asyncio.wait_for 添加超时保护
-                return await asyncio.wait_for(
+                val = await asyncio.wait_for(
                     self._client.read_value_by_address(
                         point.func_code, point.rtu_addr, point.address, point.decode
                     ),
@@ -391,7 +423,7 @@ class ModbusClientHandler(ClientHandler):
             else:
                 # 同步客户端，放到线程池执行
                 loop = asyncio.get_running_loop()
-                return await asyncio.wait_for(
+                val = await asyncio.wait_for(
                     loop.run_in_executor(
                         None, # 使用默认执行器
                         self._client.read_value_by_address,
@@ -399,6 +431,13 @@ class ModbusClientHandler(ClientHandler):
                     ),
                     timeout=1.0  # 1秒超时
                 )
+            bit_offset = getattr(point, "bit", None)
+            if bit_offset is not None and val is not None:
+                try:
+                    return int(bool((int(val) >> bit_offset) & 1))
+                except (ValueError, TypeError):
+                    pass
+            return val
         except asyncio.TimeoutError:
             if self._log:
                 self._log.debug(f"异步读取超时: {point.code if hasattr(point, 'code') else point}")
@@ -516,12 +555,27 @@ class ModbusClientHandler(ClientHandler):
         
         if is_async:
             if self._loop and self._loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(
-                    self._client.write_value_by_address(
-                        point.func_code, point.rtu_addr, point.address, value, point.decode
-                    ),
-                    self._loop
-                )
+                async def _do_write():
+                    write_val = value
+                    bit_offset = getattr(point, "bit", None)
+                    if bit_offset is not None:
+                        cur_val = await self._client.read_value_by_address(
+                            point.func_code, point.rtu_addr, point.address, point.decode
+                        )
+                        if cur_val is not None:
+                            try:
+                                cur_int = int(cur_val)
+                                if int(value):
+                                    write_val = cur_int | (1 << bit_offset)
+                                else:
+                                    write_val = cur_int & ~(1 << bit_offset)
+                            except (ValueError, TypeError):
+                                pass
+                    return await self._client.write_value_by_address(
+                        point.func_code, point.rtu_addr, point.address, write_val, point.decode
+                    )
+
+                future = asyncio.run_coroutine_threadsafe(_do_write(), self._loop)
                 try:
                     return future.result(timeout=2.0)
                 except concurrent.futures.TimeoutError:
@@ -534,50 +588,28 @@ class ModbusClientHandler(ClientHandler):
                     return False
             return False
         else:
+            write_val = value
+            bit_offset = getattr(point, "bit", None)
+            if bit_offset is not None:
+                cur_val = self._client.read_value_by_address(
+                    point.func_code, point.rtu_addr, point.address, point.decode
+                )
+                if cur_val is not None:
+                    try:
+                        cur_int = int(cur_val)
+                        if int(value):
+                            write_val = cur_int | (1 << bit_offset)
+                        else:
+                            write_val = cur_int & ~(1 << bit_offset)
+                    except (ValueError, TypeError):
+                        pass
+
             self._client.write_value_by_address(
-                point.func_code, point.rtu_addr, point.address, value, point.decode
+                point.func_code, point.rtu_addr, point.address, write_val, point.decode
             )
             return True
 
-    async def read_value_async(self, point: BasePoint) -> Any:
-        """异步读取测点值（用于 async 环境）"""
-        if not self._client or not hasattr(point, "func_code"):
-            if self._log: self._log.warning(f"read_value_async: client or point invalid. point={point}")
-            return None
-        
-        # 检查是否是异步客户端
-        is_async = hasattr(self._client, 'read_value_by_address') and asyncio.iscoroutinefunction(self._client.read_value_by_address)
-        
-        if self._log: self._log.info(f"read_value_async: point={point.code}, addr={point.address}, func={point.func_code}, is_async={is_async}")
 
-        try:
-            if is_async:
-                # 使用 asyncio.wait_for 添加超时保护
-                return await asyncio.wait_for(
-                    self._client.read_value_by_address(
-                        point.func_code, point.rtu_addr, point.address, point.decode
-                    ),
-                    timeout=1.0  # 1秒超时
-                )
-            else:
-                # 同步客户端，放到线程池执行
-                loop = asyncio.get_running_loop()
-                return await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None, # 使用默认执行器
-                        self._client.read_value_by_address,
-                        point.func_code, point.rtu_addr, point.address, point.decode
-                    ),
-                    timeout=1.0  # 1秒超时
-                )
-        except asyncio.TimeoutError:
-            if self._log:
-                self._log.warning(f"Async read_value timeout: {point.code if hasattr(point, 'code') else point}")
-            return None
-        except Exception as e:
-            if self._log:
-                self._log.error(f"Async read_value error: {e}")
-            return None
 
     async def write_value_async(self, point: BasePoint, value: Any) -> bool:
         """异步写入测点值（用于 async 环境）"""
@@ -587,22 +619,56 @@ class ModbusClientHandler(ClientHandler):
         # 检查是否是异步客户端
         is_async = hasattr(self._client, 'write_value_by_address') and asyncio.iscoroutinefunction(self._client.write_value_by_address)
 
+        write_val = value
+        bit_offset = getattr(point, "bit", None)
+
         if is_async:
+            if bit_offset is not None:
+                cur_val = await self._client.read_value_by_address(
+                    point.func_code, point.rtu_addr, point.address, point.decode
+                )
+                if cur_val is not None:
+                    try:
+                        cur_int = int(cur_val)
+                        if int(value):
+                            write_val = cur_int | (1 << bit_offset)
+                        else:
+                            write_val = cur_int & ~(1 << bit_offset)
+                    except (ValueError, TypeError):
+                        pass
+
             return await asyncio.wait_for(
                 self._client.write_value_by_address(
-                    point.func_code, point.rtu_addr, point.address, value, point.decode
+                    point.func_code, point.rtu_addr, point.address, write_val, point.decode
                 ),
                 timeout=2.0
             )
         else:
             # 同步客户端，放到线程池执行
             loop = asyncio.get_running_loop()
+            
+            def _sync_write():
+                w_val = value
+                if bit_offset is not None:
+                    cur_val = self._client.read_value_by_address(
+                        point.func_code, point.rtu_addr, point.address, point.decode
+                    )
+                    if cur_val is not None:
+                        try:
+                            cur_int = int(cur_val)
+                            if int(value):
+                                w_val = cur_int | (1 << bit_offset)
+                            else:
+                                w_val = cur_int & ~(1 << bit_offset)
+                        except (ValueError, TypeError):
+                            pass
+                self._client.write_value_by_address(
+                    point.func_code, point.rtu_addr, point.address, w_val, point.decode
+                )
+                return True
+                
             return await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    self._client.write_value_by_address,
-                    point.func_code, point.rtu_addr, point.address, value, point.decode
-                ),
+                loop.run_in_executor(None, _sync_write),
                 timeout=2.0
             )
 

@@ -122,7 +122,7 @@ import {
   setSinglePointSimulateMethod, 
   setSinglePointStep, 
   setPointSimulationRange 
-} from '@/api/deviceApi';
+} from '@/api/pointApi';
 
 interface Props {
   deviceName: string;

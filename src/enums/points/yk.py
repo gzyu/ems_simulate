@@ -17,7 +17,7 @@ class Yk(BasePoint):
         self,
         rtu_addr: str = "1",
         address: str = "0x0000",
-        bit: str = "0",
+        bit: Optional[str | int] = None,
         func_code: int = 5,  # 遥控默认使用写单线圈功能码
         name: str = "",
         code: str = "",
@@ -38,7 +38,7 @@ class Yk(BasePoint):
             decode=decode,
         )
 
-        self._bit: int = int(bit)
+        self._bit: Optional[int] = int(bit) if bit is not None and str(bit) != "" else None
         self._hex_value: str = decimal_to_hex_formatted(self._value)
         self._related_yx_address: Optional[int] = related_yx_address
         self._command_type: int = command_type  # 命令类型：0-合闸/1-分闸 等
@@ -63,11 +63,11 @@ class Yk(BasePoint):
     # ===== 遥控特有属性 =====
 
     @property
-    def bit(self) -> int:
+    def bit(self) -> Optional[int]:
         return self._bit
 
     @bit.setter
-    def bit(self, bit: int):
+    def bit(self, bit: Optional[int]):
         self._bit = bit
 
     @property
@@ -102,7 +102,10 @@ class Yk(BasePoint):
                 self._value = value
                 if isinstance(self.value, int):
                     self.hex_value = decimal_to_hex_formatted(value)
-                self._record_change(old_value, value)
+
+                if self._change_tracking_enabled:   # 如果变更追踪已启用
+                    self._record_change(old_value, value)
+                    
                 if self.is_send_signal:
                     self.value_changed.send(
                         old_point=self, related_point=self.related_point

@@ -240,7 +240,7 @@ import { useRoute } from "vue-router"
 import { QuestionFilled, Download, Edit, Delete, CircleCheckFilled, CircleCloseFilled, RemoveFilled } from "@element-plus/icons-vue"
 import { ElMessage } from 'element-plus'
 import { getPointType, PointType } from '@/types/point'
-import { readSinglePoint, deletePoint } from '@/api/deviceApi'
+import { readSinglePoint, deletePoint } from '@/api/pointApi'
 
 import SingleRegister from '../register/SingleRegister.vue'
 import LongRegister from '../register/LongRegister.vue'
@@ -362,7 +362,11 @@ const convertedTableData = computed(() => {
     row.forEach((val: any, i: number) => {
       if (i < props.tableHeader.length) {
         const h = props.tableHeader[i];
-        data[h] = (i === props.tableHeader.length - 4) ? parseFloat(val).toFixed(3) : val;
+        let displayVal = val;
+        if (displayVal === 'None' || displayVal === null) {
+          displayVal = '';
+        }
+        data[h] = (i === props.tableHeader.length - 4) ? parseFloat(val || 0).toFixed(3) : displayVal;
       }
     });
     return data;
@@ -403,12 +407,9 @@ const handleReadPoint = async (pointCode: string) => {
     if (value !== null) {
       ElMessage.success(`读取成功: ${value}`);
       emit('refresh');
-    } else {
-      ElMessage.error('读取失败，请检查连接状态');
     }
   } catch (e) {
     console.error('读取失败:', e);
-    // error message is handled by global interceptor
   } finally {
     readingPoints[pointCode] = false;
   }

@@ -124,6 +124,9 @@ class ChannelUpdateRequest(BaseModel):
 class CreateAndStartDeviceRequest(BaseModel):
     channel_id: int
 
+class ManualReadRequest(BaseModel):
+    device_name: str
+    interval: Optional[int] = 0
 
 # ========== 设备组相关请求 ==========
 
@@ -186,6 +189,7 @@ class PointCreateRequest(BaseModel):
     reg_addr: str = Field(..., description="寄存器地址")
     func_code: int = Field(3, description="功能码")
     decode_code: str = Field("0x41", description="解析码")
+    bit: Optional[int] = Field(None, description="位偏移")
     mul_coe: float = Field(1.0, description="乘系数（仅遥测/遥调）")
     add_coe: float = Field(0.0, description="加系数（仅遥测/遥调）")
 
@@ -228,6 +232,7 @@ class PointItem(BaseModel):
     reg_addr: str = Field(..., description="寄存器地址")
     func_code: int = Field(3, description="功能码")
     decode_code: str = Field("0x41", description="解析码")
+    bit: Optional[int] = Field(None, description="位偏移")
     mul_coe: float = Field(1.0, description="乘系数（仅遥测/遥调）")
     add_coe: float = Field(0.0, description="加系数（仅遥测/遥调）")
 

@@ -84,7 +84,7 @@ import {
   setChangeTrackingConfig, 
   clearPointChangeHistory,
   type ChangeRecord 
-} from '@/api/deviceApi';
+} from '@/api/pointApi';
 
 interface Props {
   deviceName: string;

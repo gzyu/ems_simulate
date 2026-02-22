@@ -73,6 +73,11 @@
             <el-input v-model.number="metadataForm.func_code" type="number" />
           </el-form-item>
         </el-col>
+        <el-col :span="12" v-if="isYxOrYk">
+          <el-form-item label="位偏移 (Bit)" class="form-item">
+            <el-input-number v-model="metadataForm.bit" :min="0" :max="31" :step="1" placeholder="留空或输入0-31" style="width: 100%" controls-position="right" :value-on-clear="null" />
+          </el-form-item>
+        </el-col>
       </el-row>
       <el-row :gutter="20" v-if="isYcOrYt">
         <el-col :span="12">
@@ -97,7 +102,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { ElMessage } from 'element-plus';
-import { getPointInfo, editPointMetadata } from '@/api/deviceApi';
+import { getPointInfo, editPointMetadata } from '@/api/pointApi';
 
 interface Props {
   deviceName: string;
@@ -118,10 +123,12 @@ const metadataForm = reactive({
   decode_code: '',
   mul_coe: 1.0,
   add_coe: 0.0,
-  frame_type: 0
+  frame_type: 0,
+  bit: null as number | null
 });
 
 const isYcOrYt = computed(() => [0, 3].includes(metadataForm.frame_type));
+const isYxOrYk = computed(() => [1, 2].includes(metadataForm.frame_type));
 
 // 加载点信息
 const loadPointInfo = async () => {
@@ -136,6 +143,7 @@ const loadPointInfo = async () => {
       metadataForm.mul_coe = info.mul_coe ?? 1.0;
       metadataForm.add_coe = info.add_coe ?? 0.0;
       metadataForm.frame_type = info.frame_type ?? 0;
+      metadataForm.bit = info.bit ?? null;
     }
   } catch (error) {
     console.error('加载点信息失败:', error);

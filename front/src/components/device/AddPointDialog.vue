@@ -125,6 +125,13 @@
         </el-select>
       </el-form-item>
 
+      <!-- 遥信和遥控特有：位偏移 -->
+      <template v-if="[1, 2].includes(formData.frame_type)">
+        <el-form-item label="位偏移 (Bit)" prop="bit">
+          <el-input-number v-model="formData.bit" :min="0" :max="31" :step="1" placeholder="留空或输入0-31" style="width: 100%" controls-position="right" :value-on-clear="null" />
+        </el-form-item>
+      </template>
+
       <!-- 系数配置，仅遥测和遥调显示 -->
       <template v-if="[0, 3].includes(formData.frame_type)">
         <el-form-item label="乘法系数" prop="mul_coe">
@@ -149,7 +156,7 @@
 import { ref, reactive, watch, computed } from 'vue';
 import type { FormInstance, FormRules } from 'element-plus';
 import { ElMessage } from 'element-plus';
-import { addPoint, addPointsBatch, type PointCreateData } from '@/api/deviceApi';
+import { addPoint, addPointsBatch, type PointCreateData } from '@/api/pointApi';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -199,6 +206,7 @@ const formData = reactive<PointCreateData>({
   reg_addr: '0',
   func_code: 3,
   decode_code: '0x20',
+  bit: null,
   mul_coe: 1.0,
   add_coe: 0.0,
 });
@@ -209,10 +217,8 @@ watch(() => formData.frame_type, (newType) => {
   codePrefix.value = prefixes.code;
   namePrefix.value = prefixes.name;
   
-  // 重置功能码为当前类型列表的第一个
-  if (validFuncCodes.value.length > 0) {
-    formData.func_code = validFuncCodes.value[0].value;
-  }
+  // 功能码默认都改成3
+  formData.func_code = 3;
 });
 
 // 可用的功能码列表
@@ -272,6 +278,7 @@ watch(() => props.modelValue, (val) => {
 const handleClose = () => {
   visible.value = false;
   formRef.value?.resetFields();
+  formData.bit = null;
   isBatch.value = false;
 };
 

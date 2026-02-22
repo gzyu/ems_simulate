@@ -70,6 +70,8 @@ class SimulationController:
                     info["mul_coe"] = point.mul_coe
                 if hasattr(point, "add_coe"):
                     info["add_coe"] = point.add_coe
+                if hasattr(point, "bit"):
+                    info["bit"] = point.bit
                 return info
         return None
     
