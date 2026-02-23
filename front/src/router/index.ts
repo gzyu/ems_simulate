@@ -1,6 +1,5 @@
 // src/router/index.js
 import { createRouter, createWebHashHistory } from 'vue-router';
-import Device from '../views/Device.vue';
 
 // 创建路由器实例
 const menuRouter = createRouter({
@@ -9,7 +8,7 @@ const menuRouter = createRouter({
     {
       path: '/device/:deviceName',
       name: 'device-detail', // Use a fixed name for the route config
-      component: Device,
+      component: () => import('../views/Device.vue'),
       props: true // Allow params to be passed as props if needed
     },
     // Optional: Add a default redirect or home route if needed

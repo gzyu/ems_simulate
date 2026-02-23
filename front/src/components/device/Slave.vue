@@ -158,6 +158,7 @@
           @update:pageSize="handlePageSizeChange"
           @update:pageIndex="handlePageIndexChange"
           @update:activeFilters="handleFilterChange"
+          @sort-change="handleSortChange"
           @refresh="handleTableRefresh"
         />
       </el-tab-pane>
@@ -225,6 +226,8 @@ const pageSize = ref(10);
 const pageIndex = ref(1);
 const total = ref(0);
 const activeFilters = ref<Record<string, number>>({});
+const orderBy = ref<string | null>(null);
+const orderDirection = ref<string | null>(null);
 const protocolType = ref<number | string>(1);
 const connType = ref<number>(2); // 默认为服务端
 const isAutoRead = ref<boolean>(false);
@@ -261,6 +264,11 @@ const handleFilterChange = (filters: Record<string, number>) => {
   activeFilters.value = filters;
   fetchDeviceTable(routeName.value, currentSlaveId.value, searchQuery.value[currentSlaveId.value] || "", pageIndex.value, pageSize.value);
 };
+const handleSortChange = ({ prop, order }: { prop: string, order: string | null }) => {
+  orderBy.value = order ? prop : null;
+  orderDirection.value = order;
+  fetchDeviceTable(routeName.value, currentSlaveId.value, searchQuery.value[currentSlaveId.value] || "", pageIndex.value, pageSize.value);
+};
 const handleTableRefresh = () => handleSearch(currentSlaveId.value);
 
 const fetchSlaveList = async () => {
@@ -282,7 +290,7 @@ const fetchSlaveList = async () => {
 };
 
 const fetchDeviceTable = async (name: string, sid: number, q: string, pi: number, ps: number) => {
-  const data = await getDeviceTable(name, sid, q, pi, ps, pointTypes.value);
+  const data = await getDeviceTable(name, sid, q, pi, ps, pointTypes.value, orderBy.value, orderDirection.value);
   if (data) {
     // 确保初始化对象
     if (!tableDataMap.value[sid]) {

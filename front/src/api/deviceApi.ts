@@ -138,7 +138,7 @@ export async function getSlaveIdList(deviceName: string): Promise<Array<number>>
 }
 
 export async function getDeviceTable(deviceName: string, slaveId: number, pointName: string | null, pageIndex: number,
-    pageSize: number, pointTypes: number[]): Promise<Map<string, any>> {
+    pageSize: number, pointTypes: number[], orderBy: string | null = null, orderDirection: string | null = null): Promise<Map<string, any>> {
     try {
         const data = await requestApi(`/device/get_device_table`, 'post', {
             device_name: deviceName,
@@ -146,7 +146,9 @@ export async function getDeviceTable(deviceName: string, slaveId: number, pointN
             point_name: pointName,
             page_index: pageIndex,
             page_size: pageSize,
-            point_types: pointTypes
+            point_types: pointTypes,
+            order_by: orderBy,
+            order_direction: orderDirection
         });
         // 将返回的对象转换为 Map
         const deviceInfoMap = new Map<string, any>(Object.entries(data));

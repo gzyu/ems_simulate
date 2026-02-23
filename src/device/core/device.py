@@ -480,6 +480,8 @@ class Device:
         page_index: Optional[int] = 1,
         page_size: Optional[int] = 10,
         point_types: Optional[List[int]] = None,
+        order_by: Optional[str] = None,
+        order_direction: Optional[str] = None,
     ) -> tuple[List[List[str]], int]:
         # 对于 IEC104 客户端，在获取表格数据前同步 c104.Point 的值到内部点
         if self.protocol_type == ProtocolType.Iec104Client and self.protocol_handler:
@@ -494,7 +496,8 @@ class Device:
         ]
 
         return self.data_exporter.get_table_data(
-            slave_id, name, page_index, page_size, point_types, mask_error=mask_error
+            slave_id, name, page_index, page_size, point_types, mask_error=mask_error,
+            order_by=order_by, order_direction=order_direction
         )
 
     def _sync_iec104_client_values(self, slave_id: int) -> None:

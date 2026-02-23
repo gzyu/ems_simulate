@@ -31,6 +31,8 @@ class DeviceTableRequest(BaseModel):
     page_index: int = 1
     page_size: int = 10
     point_types: List[int] = Field(default_factory=list)
+    order_by: Optional[str] = None
+    order_direction: Optional[str] = None
 
 class PointEditDataRequest(BaseModel):
     device_name: str

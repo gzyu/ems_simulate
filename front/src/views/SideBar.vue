@@ -291,7 +291,20 @@ const handleDeleteDeviceByName = async (deviceName: string) => {
   const channel = (await getChannelList()).find(c => c.name === deviceName);
   if (channel) {
     await deleteChannel(channel.id);
-    window.location.reload();
+    ElMessage.success('删除成功');
+
+    if (currentDeviceName.value === deviceName) {
+      currentDeviceName.value = '';
+      currentNodeKey.value = '';
+      localStorage.removeItem("activeRoute");
+      router.push('/');
+    }
+
+    if (menuRouter.hasRoute(deviceName)) {
+      menuRouter.removeRoute(deviceName);
+    }
+
+    await fetchDeviceGroupTree();
   }
 };
 

@@ -81,9 +81,6 @@
     <el-form-item v-if="modelValue.protocol_type === 3" label="电表地址" prop="rtu_addr">
       <el-input v-model="modelValue.rtu_addr" placeholder="DLT645 电表 12 位地址" />
     </el-form-item>
-    <el-form-item v-else label="从机地址" prop="rtu_addr">
-      <el-input v-model="modelValue.rtu_addr" placeholder="Modbus 从机地址 (通常为 1)" />
-    </el-form-item>
   </div>
 </template>
 

@@ -6,6 +6,7 @@
       :cell-class-name="() => 'modern-cell'"
       :header-cell-class-name="() => 'modern-header-cell'"
       @filter-change="handleFilterChange"
+      @sort-change="handleSortChange"
       :row-key="getRowKey"
       @expand-change="handleExpand"
       :expand-row-keys="expandedRowKeys"
@@ -93,6 +94,8 @@
       <!-- 地址列：合并10进制和16进制 -->
       <el-table-column
         label="地址"
+        prop="地址"
+        sortable="custom"
         :min-width="130"
         show-overflow-tooltip
       >
@@ -124,6 +127,7 @@
         :label="header"
         :min-width="addressFilteredWidthList[index]"
         show-overflow-tooltip
+        :sortable="['功能码', '解析码'].includes(header) ? 'custom' : false"
         :filters="header === '帧类型' ? tagFilters : undefined"
         :fixed="['帧类型', '状态'].includes(header) ? 'right' : undefined"
       >
@@ -263,7 +267,7 @@ const props = defineProps({
   protocolType: { type: [Number, String] as PropType<number | string>, default: 1 }
 });
 
-const emit = defineEmits(['update:pageSize', 'update:pageIndex', 'update:activeFilters', 'refresh']);
+const emit = defineEmits(['update:pageSize', 'update:pageIndex', 'update:activeFilters', 'refresh', 'sort-change']);
 const route = useRoute();
 const deviceName = computed(() => route.params.deviceName as string);
 
@@ -317,8 +321,8 @@ const columnWidthMap: Record<string, number> = {
   '真实值': 120,
   '乘法系数': 100,
   '加法系数': 100,
-  '位': 60,
-  '功能码': 80,
+  '位': 50,
+  '功能码': 90,
   '解析码': 90,
   '帧类型': 80,
   // IEC104 协议特有列
@@ -355,6 +359,9 @@ const tagFilters = [
 ];
 
 const handleFilterChange = (f: any) => emit('update:activeFilters', f);
+const handleSortChange = ({ prop, order }: { prop: string, order: string | null }) => {
+  emit('sort-change', { prop, order });
+};
 
 const convertedTableData = computed(() => {
   return props.tableData.map(row => {

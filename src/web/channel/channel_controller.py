@@ -124,7 +124,7 @@ async def create_channel(req: ChannelCreateRequest, request: Request):
             data_bits=req.data_bits,
             stop_bits=req.stop_bits,
             parity=req.parity,
-            rtu_addr=req.rtu_addr,
+            rtu_addr=req.rtu_addr if req.protocol_type == 3 else "1",
         )
         
         if channel_id > 0:
@@ -424,6 +424,9 @@ async def update_channel(channel_id: int, req: ChannelUpdateRequest, request: Re
         if not existing:
             return BaseResponse(code=404, message="通道不存在")
         
+        # 确定最终的 protocol_type
+        protocol_to_use = req.protocol_type if req.protocol_type is not None else existing.get("protocol_type", 1)
+        
         # 更新通道
         success = ChannelService.update_channel(
             channel_id=channel_id,
@@ -436,7 +439,7 @@ async def update_channel(channel_id: int, req: ChannelUpdateRequest, request: Re
             baud_rate=req.baud_rate,
             data_bits=req.data_bits, stop_bits=req.stop_bits,
             parity=req.parity,
-            rtu_addr=req.rtu_addr,
+            rtu_addr=req.rtu_addr if protocol_to_use == 3 else "1",
         )
         
         if success:

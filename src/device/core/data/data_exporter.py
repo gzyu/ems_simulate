@@ -41,6 +41,8 @@ class DataExporter:
         page_size: Optional[int] = 10,
         point_types: Optional[List[int]] = None,
         mask_error: bool = True,
+        order_by: Optional[str] = None,
+        order_direction: Optional[str] = None,
     ) -> Tuple[List[List[str]], int]:
         """获取表格数据
         
@@ -51,6 +53,8 @@ class DataExporter:
             page_size: 每页大小
             point_types: 点类型列表
             mask_error: 是否隐藏无效数据(错误/未知)
+            order_by: 排序字段 (地址, 功能码, 解析码)
+            order_direction: 排序方向 (ascending, descending)
             
         Returns:
             (数据列表, 总数)
@@ -89,8 +93,24 @@ class DataExporter:
                 if name is None or name in str(yt.name):
                     table_data.append(self._format_yc_row(yt, frame_type_dict, mask_error))
 
-        # 按地址排序，确保列表顺序稳定
-        table_data.sort(key=lambda row: int(row[0]) if row[0].isdigit() else 0)
+        # Default sorting by address
+        def default_sort_key(row):
+            return int(row[0]) if row[0].isdigit() else 0
+
+        # Optional custom sorting
+        if order_by and order_direction:
+            is_reverse = order_direction == "descending"
+            if order_by == "地址":
+                table_data.sort(key=default_sort_key, reverse=is_reverse)
+            elif order_by == "功能码":
+                table_data.sort(key=lambda row: int(row[3]) if row[3].isdigit() else 0, reverse=is_reverse)
+            elif order_by == "解析码":
+                table_data.sort(key=lambda row: row[4], reverse=is_reverse)
+            else:
+                table_data.sort(key=default_sort_key)
+        else:
+            # 默认按地址排序
+            table_data.sort(key=default_sort_key)
 
         total = len(table_data)
 
