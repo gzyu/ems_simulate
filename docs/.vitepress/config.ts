@@ -29,6 +29,13 @@ export default defineConfig({
         sidebar: {
             '/guide/': [
                 {
+                    text: '关于项目',
+                    collapsed: false,
+                    items: [
+                        { text: '项目介绍', link: '/guide/about/project-introduction' }
+                    ]
+                },
+                {
                     text: '安装部署',
                     collapsed: false,
                     items: [
@@ -42,7 +49,8 @@ export default defineConfig({
                     text: '设备模块',
                     collapsed: false,
                     items: [
-                        { text: '协议支持', link: '/guide/device/protocols' }
+                        { text: '协议支持', link: '/guide/device/protocols' },
+                        { text: '设备管理', link: '/guide/device/device-management' }
                     ]
                 },
                 {
@@ -56,14 +64,14 @@ export default defineConfig({
                         { text: '公式使用', link: '/guide/point/formula' },
                         { text: '寄存器解析', link: '/guide/point/register-parsing' }
                     ]
-                },
-                {
-                    text: '操作手册',
-                    collapsed: false,
-                    items: [
-                        { text: '用户使用手册', link: '/guide/manual/user-manual' }
-                    ]
                 }
+                // {
+                //     text: '操作手册',
+                //     collapsed: false,
+                //     items: [
+                //         { text: '用户使用手册', link: '/guide/manual/user-manual' }
+                //     ]
+                // }
             ],
             '/api/': [
                 {
