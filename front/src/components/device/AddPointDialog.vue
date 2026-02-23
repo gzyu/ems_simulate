@@ -217,8 +217,12 @@ watch(() => formData.frame_type, (newType) => {
   codePrefix.value = prefixes.code;
   namePrefix.value = prefixes.name;
   
-  // 功能码默认都改成3
-  formData.func_code = 3;
+  // 遥控 (2) 和 遥调 (3) 默认功能码为 6，遥测 (0) 和 遥信 (1) 默认功能码为 3
+  if (newType === 2 || newType === 3) {
+    formData.func_code = 6;
+  } else {
+    formData.func_code = 3;
+  }
 });
 
 // 可用的功能码列表

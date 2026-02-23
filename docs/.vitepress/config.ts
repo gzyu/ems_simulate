@@ -50,7 +50,9 @@ export default defineConfig({
                     collapsed: false,
                     items: [
                         { text: '协议支持', link: '/guide/device/protocols' },
-                        { text: '设备管理', link: '/guide/device/device-management' }
+                        { text: '设备管理', link: '/guide/device/device-management' },
+                        { text: '从机管理', link: '/guide/device/slave-management' },
+                        { text: '报文查看', link: '/guide/device/packet-view' }
                     ]
                 },
                 {
@@ -62,7 +64,8 @@ export default defineConfig({
                         { text: '测点模拟', link: '/guide/point/simulation' },
                         { text: '测点映射', link: '/guide/point/mapping' },
                         { text: '公式使用', link: '/guide/point/formula' },
-                        { text: '寄存器解析', link: '/guide/point/register-parsing' }
+                        { text: '寄存器解析', link: '/guide/point/register-parsing' },
+                        { text: '变化回溯', link: '/guide/point/change-tracking' }
                     ]
                 }
                 // {

@@ -252,35 +252,35 @@ class PointCalculator:
                 # 只有值变化且差异够大时才更新，避免无限循环
                 current_val = target_point.real_value if hasattr(target_point, 'real_value') else target_point.value
                 
-                def apply_update():
-                    # 尝试将 result 转为 float 比较
-                    try:
-                        res_float = float(result)
-                        cur_float = float(current_val)
-                        if abs(cur_float - res_float) > 1e-6:
-                            if hasattr(target_point, 'set_real_value'):
-                                target_point.set_real_value(res_float)
-                            else:
-                                target_point.value = int(res_float)
-                    except (ValueError, TypeError):
-                        # 如果不是数字，直接比较
-                        if current_val != result:
-                             if hasattr(target_point, 'set_real_value'):
-                                target_point.set_real_value(result)
-                             else:
-                                # 尽力而为
-                                try: 
-                                    target_point.value = int(result)
-                                except:
-                                    pass
-
-                # 性能优化：仅当开启追溯时才进入上下文
-                if target_point.change_tracking_enabled:
-                    with track_change(ChangeSource.MAPPING, f"映射计算 mapping_id={mapping_id}, formula={formula}"):
-                        apply_update()
-                else:
-                    apply_update()
+                should_update = False
+                update_val = result
                 
+                # 尝试将 result 转为 float 比较
+                try:
+                    res_float = float(result)
+                    cur_float = float(current_val)
+                    if abs(cur_float - res_float) > 1e-6:
+                        should_update = True
+                        update_val = res_float
+                except (ValueError, TypeError):
+                    # 如果不是数字，直接比较
+                    if current_val != result:
+                        should_update = True
+
+                if should_update:
+                    # 调用 editPointData 将值写入协议，该方法内会自动更新内存值并记录变更(track_change)
+                    try:
+                        self.device.editPointData(
+                            target_point.code,
+                            update_val,
+                            source=ChangeSource.MAPPING,
+                            detail=f"映射计算 mapping_id={mapping_id}, formula={formula}"
+                        )
+                    except ValueError as e:
+                        log.warning(f"Mapping calculation result invalid for point {target_point.code}: {e}")
+                    except Exception as e:
+                        log.error(f"Failed to update mapped point {target_point.code}: {e}")
+
                 log.info(f"Setting point {target_point.code} to {result}")
             else:
                 log.error(f"Calculation result {result} is not a number")

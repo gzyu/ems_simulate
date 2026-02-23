@@ -157,8 +157,9 @@ const getSourceTagType = (source: string) => {
   switch (source) {
     case 'manual': return 'primary';
     case 'simulation': return 'success';
-    case 'mapping': return 'info';
+    case 'mapping': return 'danger';
     case 'protocol': return 'warning';
+    case 'client_read': return 'info';
     default: return 'info';
   }
 };

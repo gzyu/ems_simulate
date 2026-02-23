@@ -162,7 +162,6 @@ class Yc(BasePoint):
 
         min_val, max_val = bounds[register_cnt]
         if min_val <= register_value <= max_val:
-            self.real_value = real_value
             self.value = register_value
             return True
         else:
