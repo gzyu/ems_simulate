@@ -46,7 +46,7 @@ class BasePoint:
         self._frame_type: int = frame_type
         self._is_simulated: bool = False
         self._is_plan: bool = False
-        self.decode = decode
+        self._decode = decode
 
         self.is_send_signal = False
         self.related_point: Optional["BasePoint"] = None
@@ -126,6 +126,21 @@ class BasePoint:
     @code.setter
     def code(self, code):
         self._code = code
+
+    @property
+    def decode(self) -> str:
+        return getattr(self, "_decode", "0x20")
+
+    @decode.setter
+    def decode(self, decode: str):
+        old_decode = getattr(self, "_decode", None)
+        if old_decode != decode:
+            self._decode = decode
+            self._on_decode_changed(old_decode)
+
+    def _on_decode_changed(self, old_decode: Optional[str]):
+        """当解析码改变时触发此回调，子类可重写以处理解析码变更后的逻辑"""
+        pass
 
     @property
     def value(self):

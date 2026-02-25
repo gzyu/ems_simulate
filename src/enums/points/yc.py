@@ -70,6 +70,21 @@ class Yc(BasePoint):
             self.is_plan,
         ]
 
+    def _on_decode_changed(self, old_decode: Optional[str]):
+        """当解析码改变时触发此回调"""
+        if not hasattr(self, "_mul_coe"):
+            return  # 初始化期间不触发
+            
+        self.register_cnt = Decode.get_decode_register_cnt(self.decode)
+        self.is_signed = Decode.is_decode_signed(self.decode)
+        self.endian = Decode.get_byteorder(self.decode)
+        
+        if not self._is_updating:
+            # 保持寄存器值不变，重新计算真实值和十六进制表示
+            val = self._value
+            self._value = None
+            self.value = val
+
     # ===== 遥测特有属性 =====
 
     @property
@@ -146,15 +161,22 @@ class Yc(BasePoint):
 
     def set_real_value(self, real_value) -> bool:
         """通过真实值设置寄存器值"""
-        old_real = self._real_value
+        info = Decode.get_info(self.decode)
+        
+        if info.is_float:
+            register_value = float((real_value - self.add_coe) / self.mul_coe)
+            self.value = register_value
+            return True
+            
         register_value = int((real_value - self.add_coe) / self.mul_coe)
-        register_cnt = Decode.get_decode_register_cnt(self.decode)
-        is_signed = Decode.is_decode_signed(self.decode)
+        register_cnt = info.register_cnt
+        is_signed = info.is_signed
 
         # 定义取值范围（无符号/有符号）
         bounds = {
             1: (0, 0xFFFF) if not is_signed else (-0x8000, 0x7FFF),
             2: (0, 0xFFFFFFFF) if not is_signed else (-0x80000000, 0x7FFFFFFF),
+            4: (0, 0xFFFFFFFFFFFFFFFF) if not is_signed else (-0x8000000000000000, 0x7FFFFFFFFFFFFFFF)
         }
 
         if register_cnt not in bounds:

@@ -101,18 +101,18 @@
           <el-option-group label="32位整数">
             <el-option label="0x40 - Long AB CD (大端)" value="0x40" />
             <el-option label="0x41 - Long AB CD (有符号)" value="0x41" />
-            <el-option label="0x43 - Long CD AB (字交换)" value="0x43" />
-            <el-option label="0x44 - Long CD AB (有符号)" value="0x44" />
+            <el-option label="0x43 - Long BA DC (大端字交换)" value="0x43" />
+            <el-option label="0x44 - Long BA DC (有符号)" value="0x44" />
             <el-option label="0xD0 - Long DC BA (小端)" value="0xD0" />
             <el-option label="0xD1 - Long DC BA (有符号)" value="0xD1" />
-            <el-option label="0xD4 - Long BA DC (小端字交换)" value="0xD4" />
-            <el-option label="0xD5 - Long BA DC (有符号)" value="0xD5" />
+            <el-option label="0xD4 - Long CD AB (小端字交换)" value="0xD4" />
+            <el-option label="0xD5 - Long CD AB (有符号)" value="0xD5" />
           </el-option-group>
           <el-option-group label="32位浮点">
             <el-option label="0x42 - Float AB CD (大端)" value="0x42" />
-            <el-option label="0x45 - Float CD AB (字交换)" value="0x45" />
+            <el-option label="0x45 - Float BA DC (大端字交换)" value="0x45" />
             <el-option label="0xD2 - Float DC BA (小端)" value="0xD2" />
-            <el-option label="0xD3 - Float BA DC (小端字交换)" value="0xD3" />
+            <el-option label="0xD3 - Float CD AB (小端字交换)" value="0xD3" />
           </el-option-group>
           <el-option-group label="64位类型">
             <el-option label="0x60 - Int64 AB CD EF GH (大端)" value="0x60" />
