@@ -1,6 +1,7 @@
 <script setup>
 import Sidebar from "./views/SideBar.vue";
 import AppHeader from "@/components/header/AppHeader.vue";
+import TagsView from "@/components/layout/TagsView.vue";
 import { currentTheme } from "@/utils/theme";
 </script>
 
@@ -10,10 +11,16 @@ import { currentTheme } from "@/utils/theme";
       <Sidebar />
       <el-container direction="vertical">
         <AppHeader />
+        <!-- 标签页 -->
+        <TagsView />
         <el-main class="main-content">
           <el-scrollbar view-class="app-scrollbar-view">
             <div class="app-view-container">
-              <router-view />
+              <router-view v-slot="{ Component, route }">
+                <keep-alive>
+                  <component :is="Component" :key="route.fullPath" />
+                </keep-alive>
+              </router-view>
             </div>
             <!-- 全局底部版权 -->
             <footer class="app-footer">

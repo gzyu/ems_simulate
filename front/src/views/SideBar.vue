@@ -72,6 +72,7 @@ import AddDeviceGroupDialog from "@/components/device/AddDeviceGroupDialog.vue";
 import { currentTheme } from "@/utils/theme";
 import { isCollapse } from "@/components/header/isCollapse";
 import menuRouter from "@/router/index";
+import { delView, visitedViews } from "@/store/tagsView";
 import { deleteChannel, getChannelList } from "@/api/channelApi";
 import { 
   getDeviceGroupTree, 
@@ -234,10 +235,11 @@ const navigateToDevice = (deviceName: string, forceRefresh = false) => {
   localStorage.setItem("activeRoute", path);
   
   if (forceRefresh) {
-    router.push(`${path}?t=${Date.now()}`);
-  } else {
-    router.push(path);
+    // For tabs, we actually probably don't want to ever force refresh 
+    // using query params as it breaks keep-alive matching easily by path.
+    // If needed, can use another mechanism. For now, just navigate.
   }
+  router.push(path);
 };
 
 const showAddDeviceDialog = () => {
@@ -293,11 +295,25 @@ const handleDeleteDeviceByName = async (deviceName: string) => {
     await deleteChannel(channel.id);
     ElMessage.success('删除成功');
 
+    const path = `/device/${deviceName}`;
+    // 如果存在这个标签，需要关闭它
+    const targetView = visitedViews.value.find(v => v.path === path);
+    if (targetView) {
+      await delView(targetView);
+    }
+
     if (currentDeviceName.value === deviceName) {
       currentDeviceName.value = '';
       currentNodeKey.value = '';
       localStorage.removeItem("activeRoute");
-      router.push('/');
+      
+      // Navigate to another view if available
+      const latestView = visitedViews.value.slice(-1)[0];
+      if (latestView) {
+        router.push((latestView.fullPath || latestView.path) as string);
+      } else {
+        router.push('/');
+      }
     }
 
     if (menuRouter.hasRoute(deviceName)) {

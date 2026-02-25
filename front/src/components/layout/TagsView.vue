@@ -1,0 +1,132 @@
+<template>
+  <div class="tags-view-container">
+    <el-scrollbar wrap-class="tags-view-wrapper">
+      <router-link
+        v-for="tag in visitedViews"
+        :key="tag.path"
+        :to="{ path: tag.path, query: tag.query }"
+        class="tags-view-item"
+        :class="isActive(tag) ? 'active' : ''"
+        @contextmenu.prevent="openMenu(tag, $event)"
+      >
+        {{ tag.title }}
+        <el-icon
+          v-if="visitedViews.length > 1"
+          class="el-icon-close"
+          @click.prevent.stop="closeSelectedTag(tag)"
+        >
+          <Close />
+        </el-icon>
+      </router-link>
+    </el-scrollbar>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { Close } from '@element-plus/icons-vue';
+import { visitedViews, delView, type TagView } from '@/store/tagsView';
+
+const route = useRoute();
+const router = useRouter();
+
+const isActive = (tag: TagView) => {
+  return tag.path === route.path;
+};
+
+const closeSelectedTag = async (view: TagView) => {
+  const views = await delView(view);
+  if (isActive(view)) {
+    toLastView(views, view);
+  }
+};
+
+const toLastView = (views: TagView[], view: TagView) => {
+  const latestView = views.slice(-1)[0];
+  if (latestView) {
+    router.push((latestView.fullPath || latestView.path) as string);
+  } else {
+    // default redirect to home or somewhere safe if no views
+    router.push('/');
+  }
+};
+
+const openMenu = (tag: TagView, e: MouseEvent) => {
+  // context menu logic can be added here if needed
+};
+</script>
+
+<style lang="scss" scoped>
+.tags-view-container {
+  height: 34px;
+  width: 100%;
+  flex-shrink: 0; // prevent being squished by main content
+  background: var(--bg-main);
+  border-bottom: 1px solid var(--sidebar-border);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.12), 0 0 3px 0 rgba(0, 0, 0, 0.04);
+  z-index: 10; // ensure it is above the main scrollbar content if any shadows exist
+  overflow: hidden;
+  
+  .tags-view-wrapper {
+    .tags-view-item {
+      display: inline-block;
+      position: relative;
+      cursor: pointer;
+      height: 26px;
+      line-height: 26px;
+      border: 1px solid var(--sidebar-border);
+      color: var(--text-primary);
+      background: var(--panel-bg);
+      padding: 0 8px;
+      font-size: 13px;
+      margin-left: 5px;
+      margin-top: 4px;
+      border-radius: 4px;
+      text-decoration: none;
+      
+      &:first-of-type {
+        margin-left: 15px;
+      }
+      
+      &.active {
+        background-color: var(--color-primary);
+        color: #fff;
+        border-color: var(--color-primary);
+        
+        &::before {
+          content: '';
+          background: #fff;
+          display: inline-block;
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          position: relative;
+          margin-right: 2px;
+        }
+      }
+      
+      .el-icon-close {
+        width: 16px;
+        height: 16px;
+        vertical-align: middle;
+        border-radius: 50%;
+        text-align: center;
+        transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+        transform-origin: 100% 50%;
+        margin-left: 2px;
+        
+        &:before {
+          transform: scale(0.6);
+          display: inline-block;
+        }
+        
+        &:hover {
+          background-color: #b4bccc;
+          color: #fff;
+        }
+      }
+    }
+  }
+}
+</style>
