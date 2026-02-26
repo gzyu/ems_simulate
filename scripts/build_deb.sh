@@ -4,7 +4,7 @@ set -e
 # 配置
 APP_NAME="ems-simulate"
 VERSION="1.0.0"
-BUILD_DIR="build_deb"
+BUILD_DIR="build/build_deb"
 OUTPUT_DIR="dist"
 DEB_DIR="${BUILD_DIR}/${APP_NAME}_${VERSION}_amd64"
 # 修改为 /usr/share (对应 onedir 资源+二进制)
@@ -32,8 +32,12 @@ fi
 
 # 3. 准备 Debian 包结构 (直接复制骨架)
 echo ">>> 准备 Debian 包结构..."
+# 创建构建目录
+mkdir -p "${DEB_DIR}"
+mkdir -p "${INSTALL_DIR}"
+mkdir -p "${DEB_DIR}/usr/bin"
 # 复制 debian 下的所有内容到构建目录
-cp -r debian/* "build/${DEB_DIR}/"
+cp -r debian/* "${DEB_DIR}/"
 
 # 4. 构建后端 (PyInstaller)
 echo ">>> 构建后端 (PyInstaller)..."
@@ -50,7 +54,7 @@ pyinstaller --noconfirm --onedir --name "${APP_NAME//-/_}" --clean \
     --distpath "build/dist" \
     --workpath "build/build_pyinstaller" \
     --specpath "build" \
-    --add-data "${PROJECT_ROOT}/config.ini:etc" \
+    --add-data "${PROJECT_ROOT}/config.ini:." \
     --add-data "${PROJECT_ROOT}/www:www" \
     --hidden-import="uvicorn.logging" \
     --hidden-import="uvicorn.loops" \
@@ -66,10 +70,10 @@ pyinstaller --noconfirm --onedir --name "${APP_NAME//-/_}" --clean \
 # 5. 组装内容
 echo ">>> 组装 Debian 包..."
 # 复制 PyInstaller 生成的内容到 /usr/share/ems-simulate
-cp -r "build/dist/${APP_NAME//-/_}/"* "build/$INSTALL_DIR/"
+cp -r "build/dist/${APP_NAME//-/_}/"* "$INSTALL_DIR/"
 
 # 创建 /usr/bin 下的软链接
-ln -sf "../share/${APP_NAME}/ems_simulate" "build/${DEB_DIR}/usr/bin/${APP_NAME}"
+ln -sf "../share/${APP_NAME}/ems_simulate" "${DEB_DIR}/usr/bin/${APP_NAME}"
 
 # 权限设置和 Control 更新在后面...
 # 更新 Control 文件中的 Installed-Size
@@ -77,14 +81,14 @@ ln -sf "../share/${APP_NAME}/ems_simulate" "build/${DEB_DIR}/usr/bin/${APP_NAME}
 # echo "Installed-Size: $INSTALLED_SIZE" >> "${DEB_DIR}/DEBIAN/control"
 
 # 5. 设置权限
-chmod 755 "build/${DEB_DIR}/DEBIAN/postinst" 2>/dev/null || true
-chmod 755 "build/${DEB_DIR}/DEBIAN/prerm" 2>/dev/null || true
-chmod 755 "build/${DEB_DIR}/DEBIAN/postrm" 2>/dev/null || true
+chmod 755 "${DEB_DIR}/DEBIAN/postinst" 2>/dev/null || true
+chmod 755 "${DEB_DIR}/DEBIAN/prerm" 2>/dev/null || true
+chmod 755 "${DEB_DIR}/DEBIAN/postrm" 2>/dev/null || true
 
 # 6. 生成 .deb
 echo ">>> 生成 .deb 文件..."
 mkdir -p build/dist_deb
-dpkg-deb --build "build/$DEB_DIR" "build/dist_deb/${APP_NAME}_${VERSION}_amd64.deb"
+dpkg-deb --build "$DEB_DIR" "build/dist_deb/${APP_NAME}_${VERSION}_amd64.deb"
 
 # 定义颜色
 RED='\033[0;31m'
@@ -114,4 +118,3 @@ else
     echo -e "${RED}❌ deb包构建失败${NC}"
     exit 1
 fi
-
