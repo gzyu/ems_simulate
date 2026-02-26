@@ -79,8 +79,8 @@ class DecodeCode(Enum):
     UINT16_BE_BYTE_SWAP = DecodeInfo("0x22", "UINT16_BE_BYTE_SWAP", "16位无符号整数(大端字节交换 BADC)", 1, False, False, True, True, ">H")
     
     # ===== 16位整数 - 大端字内反序 (0xB_) =====
-    UINT16_BE_SWAP = DecodeInfo("0xB0", "UINT16_BE_SWAP", "16位无符号整数(大端字交换 BADC)", 1, False, False, True, True, ">H_")
-    INT16_BE_SWAP = DecodeInfo("0xB1", "INT16_BE_SWAP", "16位有符号整数(大端字交换 BADC)", 1, True, False, True, True, ">h_")
+    UINT16_BE_SWAP = DecodeInfo("0xB0", "UINT16_BE_SWAP", "16位无符号整数(大端字交换 BADC)", 1, False, False, True, True, "=H")
+    INT16_BE_SWAP = DecodeInfo("0xB1", "INT16_BE_SWAP", "16位有符号整数(大端字交换 BADC)", 1, True, False, True, True, "=h")
     
     # ===== 32位整数/浮点 - 大端 (0x4_) =====
     UINT32_BE = DecodeInfo("0x40", "UINT32_BE", "32位无符号整数(大端 ABCD)", 2, False, False, True, False, ">I")
@@ -88,9 +88,9 @@ class DecodeCode(Enum):
     FLOAT_BE = DecodeInfo("0x42", "FLOAT_BE", "32位浮点数(大端 ABCD)", 2, False, True, True, False, ">f")
     
     # ===== 32位整数/浮点 - 大端字内反序 =====
-    UINT32_BE_SWAP = DecodeInfo("0x43", "UINT32_BE_SWAP", "32位无符号整数(大端字交换 BADC)", 2, False, False, True, True, ">I_")
-    INT32_BE_SWAP = DecodeInfo("0x44", "INT32_BE_SWAP", "32位有符号整数(大端字交换 BADC)", 2, True, False, True, True, ">i_")
-    FLOAT_BE_SWAP = DecodeInfo("0x45", "FLOAT_BE_SWAP", "32位浮点数(大端字交换 BADC)", 2, False, True, True, True, ">f_")
+    UINT32_BE_SWAP = DecodeInfo("0x43", "UINT32_BE_SWAP", "32位无符号整数(大端字交换 BADC)", 2, False, False, True, True, "=I")
+    INT32_BE_SWAP = DecodeInfo("0x44", "INT32_BE_SWAP", "32位有符号整数(大端字交换 BADC)", 2, True, False, True, True, "=i")
+    FLOAT_BE_SWAP = DecodeInfo("0x45", "FLOAT_BE_SWAP", "32位浮点数(大端字交换 BADC)", 2, False, True, True, True, "=f")
     
     # ===== 16位整数 - 小端 (0xC_) =====
     UINT16_LE = DecodeInfo("0xC0", "UINT16_LE", "16位无符号整数(小端 DCBA)", 1, False, False, False, False, "<H")
