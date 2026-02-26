@@ -219,7 +219,11 @@ async def batch_device_operation(group_id: int, request: BatchDeviceOperationReq
         device_controller = req.app.state.device_controller
         
         # 获取组内设备
-        devices = DeviceGroupService.get_devices_by_group(group_id)
+        if group_id == 0:
+            devices = DeviceGroupService.get_ungrouped_devices()
+        else:
+            devices = DeviceGroupService.get_devices_by_group(group_id)
+            
         if not devices:
             return BaseResponse(code=404, message="设备组内没有设备")
         

@@ -34,6 +34,7 @@
         @device-click="handleDeviceClick"
         @edit-device="handleEditDeviceByName"
         @delete-device="handleDeleteDeviceByName"
+        @group-command="handleUngroupedCommand"
       />
     </el-scrollbar>
   </el-aside>
@@ -262,6 +263,15 @@ const handleGroupCommand = async (command: string, data: TreeNode) => {
     startAll: () => handleBatchOperation(data.id, 'start'),
     stopAll: () => handleBatchOperation(data.id, 'stop'),
     delete: () => handleDeleteGroup(data)
+  };
+  actions[command]?.();
+};
+
+const handleUngroupedCommand = async (command: string) => {
+  const actions: Record<string, Function> = {
+    addDevice: () => { parentGroupIdForNewDevice.value = null; addDeviceDialogVisible.value = true; },
+    startAll: () => handleBatchOperation(0, 'start'),
+    stopAll: () => handleBatchOperation(0, 'stop'),
   };
   actions[command]?.();
 };

@@ -1,8 +1,23 @@
 <template>
   <div class="ungrouped-section" v-if="ungroupedDevices.length > 0">
-    <div class="ungrouped-header" @click="$emit('toggle')">
-      <el-icon><ArrowRight :class="{ 'is-expanded': expanded }" /></el-icon>
-      <span>未分组设备 ({{ ungroupedDevices.length }})</span>
+    <div class="ungrouped-header">
+      <div class="header-left" @click="$emit('toggle')">
+        <el-icon><ArrowRight :class="{ 'is-expanded': expanded }" /></el-icon>
+        <span>未分组设备 ({{ ungroupedDevices.length }})</span>
+      </div>
+      
+      <div class="header-actions" v-if="!isCollapse" @click.stop>
+        <el-dropdown trigger="click" @command="(cmd: string) => $emit('group-command', cmd)">
+          <el-button link size="small" :icon="MoreFilled" />
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="addDevice" :icon="Plus">添加设备</el-dropdown-item>
+              <el-dropdown-item command="startAll" :icon="VideoPlay">启动全部</el-dropdown-item>
+              <el-dropdown-item command="stopAll" :icon="VideoPause">停止全部</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
     </div>
     <div v-show="expanded" class="ungrouped-list">
       <div
@@ -26,7 +41,8 @@
 </template>
 
 <script lang="ts" setup>
-import { ArrowRight, Cpu, Edit, Delete } from "@element-plus/icons-vue";
+import { ArrowRight, Cpu, Edit, Delete, MoreFilled, Plus, VideoPlay, VideoPause } from "@element-plus/icons-vue";
+
 
 defineProps<{
   ungroupedDevices: any[];
@@ -40,6 +56,7 @@ defineEmits<{
   (e: 'device-click', device: any): void;
   (e: 'edit-device', name: string): void;
   (e: 'delete-device', name: string): void;
+  (e: 'group-command', command: string): void;
 }>();
 </script>
 
@@ -53,13 +70,9 @@ defineEmits<{
 .ungrouped-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 10px 12px;
-  cursor: pointer;
   color: var(--text-secondary);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  font-weight: 600;
   border-radius: 8px;
   transition: all 0.2s;
 }
@@ -69,13 +82,46 @@ defineEmits<{
   color: var(--text-primary);
 }
 
-.ungrouped-header .el-icon {
+.header-left {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  flex: 1;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+
+.header-left .el-icon {
   margin-right: 10px;
   transition: transform 0.2s;
 }
 
-.ungrouped-header .el-icon.is-expanded {
+.header-left .el-icon.is-expanded {
   transform: rotate(90deg);
+}
+
+.header-actions {
+  display: flex;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.ungrouped-header:hover .header-actions {
+  opacity: 1;
+}
+
+.header-actions .el-button {
+  padding: 5px;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.header-actions .el-button:hover {
+  background-color: var(--item-active-bg);
+  color: var(--color-primary);
 }
 
 .ungrouped-list {
