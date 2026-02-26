@@ -204,7 +204,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, watch, onUnmounted, computed } from "vue";
+import { ref, onMounted, watch, onUnmounted, computed, onActivated, onDeactivated } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox, type TabsPaneContext } from "element-plus";
 import { Search, Refresh, Download, Plus, Delete, CircleCloseFilled, MoreFilled } from "@element-plus/icons-vue";
@@ -216,7 +216,8 @@ import AddSlaveDialog from "./AddSlaveDialog.vue";
 import EditSlaveDialog from "./EditSlaveDialog.vue";
 
 const route = useRoute();
-const routeName = ref(route.params.deviceName as string);
+const initialDeviceName = route.params.deviceName as string;
+const routeName = ref(initialDeviceName);
 const activeName = ref("");
 const slaveIdList = ref<number[]>([]);
 const currentSlaveId = ref(1);
@@ -464,8 +465,8 @@ const handleSlaveEdited = async (newSlaveId: number) => {
 
 
 watch(() => route.fullPath, async () => {
-    // 强制刷新：当 query 参数变化（如添加了 t=timestamp）或路径变化时触发
-    if (route.params.deviceName) {
+    // 强制刷新：当 query 参数变化（如添加了 t=timestamp）且属于本组件对应设备时触发
+    if (route.params.deviceName && route.params.deviceName === initialDeviceName) {
       if (routeName.value !== route.params.deviceName) {
           stopAutoRefresh();
           routeName.value = route.params.deviceName as string;
@@ -712,11 +713,18 @@ onMounted(async () => {
   await fetchSlaveList();
   // 获取当前自动读取状态
   await fetchAutoReadStatus();
-  // 始终开启表格刷新以支持主动上报协议的数据显示
-  startAutoRefresh();
   
   // 连接 WebSocket
   // connectWebSocket();
+});
+
+onActivated(() => {
+  // 始终开启表格刷新以支持主动上报协议的数据显示
+  startAutoRefresh();
+});
+
+onDeactivated(() => {
+  stopAutoRefresh();
 });
 
 

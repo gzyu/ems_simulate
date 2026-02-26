@@ -79,7 +79,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, onUnmounted, computed, watch } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch, onActivated, onDeactivated } from "vue";
 import { useRoute } from "vue-router";
 import TextNode from "@/components/common/TextNode.vue";
 import Slave from "@/components/device/Slave.vue";
@@ -100,7 +100,9 @@ const getDeviceNameFromRoute = () => {
   return (route.params.deviceName as string) || '';
 };
 
-const routeName = ref(getDeviceNameFromRoute());
+// 记录组件创建时的初始设备名，避免被其他页面的路由变化触发
+const initialDeviceName = getDeviceNameFromRoute();
+const routeName = ref(initialDeviceName);
 const deviceInfo = ref(new Map<string, any>());
 const ip = ref<any>("");
 const port = ref<any>("");
@@ -260,7 +262,14 @@ const stopStatusPolling = () => {
 
 onMounted(() => {
   // fetchDeviceInfo(); // 交给 watcher 处理，避免重复或时序问题
+});
+
+onActivated(() => {
   startStatusPolling();
+});
+
+onDeactivated(() => {
+  stopStatusPolling();
 });
 
 onUnmounted(() => {
@@ -270,7 +279,7 @@ onUnmounted(() => {
 watch(() => route.fullPath, async () => {
   const newName = getDeviceNameFromRoute();
   
-  if (newName) {
+  if (newName && newName === initialDeviceName) {
     if (routeName.value !== newName) {
       routeName.value = newName;
       // 重置数据

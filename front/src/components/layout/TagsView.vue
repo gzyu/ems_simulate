@@ -23,13 +23,36 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Close } from '@element-plus/icons-vue';
 import { visitedViews, delView, type TagView } from '@/store/tagsView';
+import Sortable from 'sortablejs';
 
 const route = useRoute();
 const router = useRouter();
+
+onMounted(() => {
+  initSortable();
+});
+
+const initSortable = () => {
+  // `el-scrollbar` renders an inner wrapper `el-scrollbar__view` which contains the actual tag items.
+  const el = document.querySelector('.tags-view-wrapper .el-scrollbar__view') as HTMLElement;
+  if (!el) return;
+  
+  Sortable.create(el, {
+    ghostClass: 'sortable-ghost',
+    animation: 150,
+    onEnd: (evt) => {
+      const { oldIndex, newIndex } = evt;
+      if (oldIndex !== undefined && newIndex !== undefined && oldIndex !== newIndex) {
+        const targetRow = visitedViews.value.splice(oldIndex, 1)[0];
+        visitedViews.value.splice(newIndex, 0, targetRow);
+      }
+    }
+  });
+};
 
 const isActive = (tag: TagView) => {
   return tag.path === route.path;
@@ -125,6 +148,11 @@ const openMenu = (tag: TagView, e: MouseEvent) => {
           background-color: #b4bccc;
           color: #fff;
         }
+      }
+      
+      &.sortable-ghost {
+        opacity: 0.3;
+        background-color: var(--color-primary-light-9, #ecf5ff);
       }
     }
   }
