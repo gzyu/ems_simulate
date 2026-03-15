@@ -102,9 +102,9 @@ class DecodeCode(Enum):
     FLOAT_LE = DecodeInfo("0xD2", "FLOAT_LE", "32位浮点数(小端 DCBA)", 2, False, True, False, False, "<f")
     
     # ===== 32位整数/浮点 - 小端字内反序 =====
-    FLOAT_LE_SWAP = DecodeInfo("0xD3", "FLOAT_LE_SWAP", "32位浮点数(小端字交换 CDAB)", 2, False, True, False, True, "<f_")
-    UINT32_LE_SWAP = DecodeInfo("0xD4", "UINT32_LE_SWAP", "32位无符号整数(小端字交换 CDAB)", 2, False, False, False, True, "<I_")
-    INT32_LE_SWAP = DecodeInfo("0xD5", "INT32_LE_SWAP", "32位有符号整数(小端字交换 CDAB)", 2, True, False, False, True, "<i_")
+    FLOAT_LE_SWAP = DecodeInfo("0xD3", "FLOAT_LE_SWAP", "32位浮点数(大端字交换 CDAB)", 2, False, True, True, True, ">f_")
+    UINT32_LE_SWAP = DecodeInfo("0xD4", "UINT32_LE_SWAP", "32位无符号整数(大端字交换 CDAB)", 2, False, False, True, True, ">I_")
+    INT32_LE_SWAP = DecodeInfo("0xD5", "INT32_LE_SWAP", "32位有符号整数(大端字交换 CDAB)", 2, True, False, True, True, ">i_")
     
     # ===== 64位类型 (4个寄存器) =====
     UINT64_BE = DecodeInfo("0x60", "UINT64_BE", "64位无符号整数(大端)", 4, False, False, True, False, ">Q")
@@ -226,12 +226,20 @@ class Decode:
         Returns:
             打包后的字节串
         """
-        if byteorder.endswith("_"):  # 处理字交换情况
+        if byteorder.endswith("_"):  # 处理字交换情况 (CDAB)
             fmt = byteorder[:-1]
             packed = struct.pack(fmt, float(value) if "f" in fmt or "d" in fmt else int(value))
-            # 通用字交换逻辑（2字节为单位）
+            # 字交换逻辑：交换16位字的位置 (ABCD → CDAB)
             if len(packed) >= 4:
-                return b"".join(packed[i:i + 2][::-1] for i in range(0, len(packed), 2))
+                words = [packed[i:i + 2] for i in range(0, len(packed), 2)]
+                # 每4字节(2个word)为一组，交换word位置
+                swapped_words = []
+                for i in range(0, len(words), 2):
+                    if i + 1 < len(words):
+                        swapped_words.extend([words[i + 1], words[i]])
+                    else:
+                        swapped_words.append(words[i])
+                return b"".join(swapped_words)
             return packed[::-1]
         return struct.pack(byteorder, float(value) if "f" in byteorder or "d" in byteorder else int(value))
 
@@ -246,10 +254,18 @@ class Decode:
         Returns:
             解包后的值
         """
-        if byteorder.endswith("_"):  # 处理字交换情况
+        if byteorder.endswith("_"):  # 处理字交换情况 (CDAB)
             fmt = byteorder[:-1]
             if len(buffer) >= 4:
-                swapped = b"".join(buffer[i:i + 2][::-1] for i in range(0, len(buffer), 2))
+                words = [buffer[i:i + 2] for i in range(0, len(buffer), 2)]
+                # 每4字节(2个word)为一组，交换word位置
+                swapped_words = []
+                for i in range(0, len(words), 2):
+                    if i + 1 < len(words):
+                        swapped_words.extend([words[i + 1], words[i]])
+                    else:
+                        swapped_words.append(words[i])
+                swapped = b"".join(swapped_words)
             else:
                 swapped = buffer[::-1]
             return struct.unpack(fmt, swapped)[0]
