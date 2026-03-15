@@ -19,9 +19,22 @@
         <el-button type="danger" @click="handleClear" :icon="Delete">
           清空报文
         </el-button>
+        <el-select v-model="searchMode" class="search-mode-select">
+          <el-option label="按描述" value="description" />
+          <el-option label="按报文" value="hex_data" />
+        </el-select>
+        <el-input
+          v-model="searchKeyword"
+          :placeholder="searchMode === 'description' ? '搜索描述...' : '搜索报文...'"
+          :prefix-icon="Search"
+          clearable
+          class="search-input"
+        />
       </div>
       <div class="right-info">
-        <span class="msg-count">共 {{ messages.length }} 条报文</span>
+        <span class="msg-count">
+          共 {{ filteredMessages.length }} / {{ messages.length }} 条报文
+        </span>
         <el-tag v-if="avgStats && avgStats.pair_count > 0" type="warning" size="small">
           平均延时: {{ avgStats.avg_latency_ms }} ms ({{ avgStats.pair_count }} 对)
         </el-tag>
@@ -31,7 +44,7 @@
     </div>
 
     <el-table
-      :data="messages"
+      :data="filteredMessages"
       stripe
       height="400"
       class="message-table"
@@ -71,7 +84,7 @@
 <script lang="ts" setup>
 import { ref, watch, onUnmounted, computed } from 'vue';
 import { getMessages, clearMessages, getAvgTime, type MessageRecord, type AvgTimeStats } from '@/api/deviceApi';
-import { CaretRight, VideoPause, Delete } from '@element-plus/icons-vue';
+import { CaretRight, VideoPause, Delete, Search } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 
 const props = defineProps<{
@@ -91,6 +104,17 @@ const visible = computed({
 const messages = ref<MessageRecord[]>([]);
 const avgStats = ref<AvgTimeStats | null>(null);
 const autoRefresh = ref(true);
+const searchKeyword = ref('');
+const searchMode = ref<'description' | 'hex_data'>('description');
+
+const filteredMessages = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase();
+  if (!keyword) return messages.value;
+  return messages.value.filter(msg => {
+    const field = searchMode.value === 'description' ? msg.description : msg.hex_data;
+    return field?.toLowerCase().includes(keyword);
+  });
+});
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 const fetchMessages = async () => {
@@ -188,6 +212,15 @@ onUnmounted(() => {
   .left-actions {
     display: flex;
     gap: 8px;
+    align-items: center;
+
+    .search-mode-select {
+      width: 100px;
+    }
+
+    .search-input {
+      width: 200px;
+    }
   }
 
   .right-info {
