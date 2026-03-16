@@ -39,6 +39,7 @@ PROTOCOL_OPTIONS = [
     {"value": 1, "label": "Modbus TCP", "conn_types": [1, 2]},
     {"value": 2, "label": "IEC 104", "conn_types": [1, 2]},
     {"value": 3, "label": "DL/T645-2007", "conn_types": [0, 1, 2, 3]},
+    {"value": 4, "label": "IEC 61850", "conn_types": [1, 2]},
 ]
 
 # 连接类型映射
@@ -163,7 +164,7 @@ async def create_channel(req: ChannelCreateRequest, request: Request):
                     # 网络设备
                     # TCP客户端 和 IEC104客户端 需要连接到目标IP
                     # ProtocolType.ModbusTcpClient 等是枚举
-                    if protocol_enum in [ProtocolType.ModbusTcpClient, ProtocolType.Iec104Client, ProtocolType.Dlt645Client]:
+                    if protocol_enum in [ProtocolType.ModbusTcpClient, ProtocolType.Iec104Client, ProtocolType.Dlt645Client, ProtocolType.Iec61850Client]:
                         builder.setDeviceNetConfig(port=req.port, ip=req.ip)
                     else:
                         # 服务端，监听 0.0.0.0 (Config.DEFAULT_IP)
@@ -265,6 +266,73 @@ async def import_points(
         return BaseResponse(code=500, message=f"导入点表失败: {e}")
 
 
+@channel_router.post("/import_icd", response_model=BaseResponse)
+async def import_icd(
+    request: Request,
+    channel_id: int = Form(...),
+    file: UploadFile = File(...)
+):
+    """导入 IEC 61850 ICD/SCD/CID 文件"""
+    try:
+        # 验证文件类型
+        valid_extensions = ('.icd', '.scd', '.cid', '.xml')
+        if not file.filename.lower().endswith(valid_extensions):
+            return BaseResponse(
+                code=400, 
+                message=f"请上传 ICD 文件 ({', '.join(valid_extensions)})"
+            )
+        
+        # 保存上传的文件到临时目录
+        suffix = os.path.splitext(file.filename)[1] or '.icd'
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        try:
+            # 先删除该通道的现有点表（支持重新导入）
+            from src.data.dao.point_dao import PointDao
+            deleted_count = PointDao.delete_points_by_channel(channel_id)
+            if deleted_count > 0:
+                log.info(f"重新导入前已删除 {deleted_count} 个旧测点")
+            
+            # 使用 ICD 导入器解析文件
+            from src.tools.icd_point_importer import IcdPointImporter
+            importer = IcdPointImporter(channel_id=channel_id)
+            yc_count, yx_count, yk_count, yt_count = importer.import_from_icd(tmp_path)
+            
+            # 同步更新内存中的设备点表
+            try:
+                device_controller = request.app.state.device_controller
+                device = device_controller.get_device_by_id(channel_id)
+                if device:
+                    device.importDataPointFromChannel(channel_id, device.protocol_type)
+                    log.info(f"已同步更新设备 {device.name} (ID: {channel_id}) 的内存点表")
+                else:
+                    log.warning(f"导入ICD后未找到内存设备 (ID: {channel_id})，需要手动加载或重启")
+            except Exception as e:
+                log.error(f"同步内存点表失败: {e}")
+
+            return BaseResponse(
+                message="导入ICD文件成功",
+                data={
+                    "yc_count": yc_count,
+                    "yx_count": yx_count,
+                    "yk_count": yk_count,
+                    "yt_count": yt_count,
+                    "total": yc_count + yx_count + yk_count + yt_count
+                }
+            )
+        finally:
+            # 清理临时文件
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+                
+    except Exception as e:
+        log.error(f"导入ICD文件失败: {e}")
+        return BaseResponse(code=500, message=f"导入ICD文件失败: {e}")
+
+
 @channel_router.post("/create_and_start", response_model=BaseResponse)
 async def create_and_start_device(req: CreateAndStartDeviceRequest, request: Request):
     """创建通道并启动设备"""
@@ -309,6 +377,7 @@ async def create_and_start_device(req: CreateAndStartDeviceRequest, request: Req
         elif (
             channel_protocol_type == ProtocolType.Iec104Client
             or channel_protocol_type == ProtocolType.ModbusTcpClient
+            or channel_protocol_type == ProtocolType.Iec61850Client
         ):
             general_device_builder.setDeviceNetConfig(port=port, ip=ip)
         else:
@@ -512,6 +581,7 @@ async def _reload_device_instance(device_controller, channel_id: int, is_start: 
         channel_protocol_type == ProtocolType.Iec104Client
         or channel_protocol_type == ProtocolType.ModbusTcpClient
         or channel_protocol_type == ProtocolType.Dlt645Client
+        or channel_protocol_type == ProtocolType.Iec61850Client
     ):
         log.info(f"Setting client net config: IP={ip}, Port={port}")
         builder.setDeviceNetConfig(port=port, ip=ip)

@@ -112,28 +112,25 @@ class DLT645Strategy(ProtocolStrategy):
 
 
 class IEC61850Strategy(ProtocolStrategy):
-    """IEC61850 协议策略（预留接口）"""
+    """IEC61850 协议策略"""
 
     def get_address_offset(self, frame_type: int) -> int:
-        # TODO: 实现 IEC61850 地址偏移逻辑
-        return 0
+        return 0  # IEC61850 使用逻辑节点路径，不需要数值偏移
 
     def get_default_decode(self) -> str:
-        # TODO: 实现 IEC61850 默认解析码
-        return "0x42"
+        return "0x42"  # IEC61850 默认使用浮点数
 
     def get_point_type_mapping(self) -> Dict[int, Any]:
-        # TODO: 实现 IEC61850 点类型映射
         # IEC61850 使用逻辑节点和数据对象模型
         return {
-            0: "MV",  # 遥测 - Measured Value
-            1: "SPS",  # 遥信 - Single Point Status
-            2: "SPC",  # 遥控 - Single Point Control
-            3: "APC",  # 遥调 - Analog Point Control
+            0: "MV",   # 遥测 - Measured Value (MMXU)
+            1: "SPS",  # 遥信 - Single Point Status (GGIO)
+            2: "SPC",  # 遥控 - Single Point Control (GGIO)
+            3: "APC",  # 遥调 - Analog Point Control (GGIO)
         }
 
     def process_address(self, address: str, frame_type: int) -> str:
-        # TODO: 实现 IEC61850 地址处理（可能是逻辑节点路径）
+        """IEC61850 地址直接使用，后续由 handler 转换为 MMS 引用路径"""
         return address
 
 
@@ -150,5 +147,7 @@ def get_protocol_strategy(protocol_type: str) -> ProtocolStrategy:
         "Dlt645Server": DLT645Strategy(),
         "Dlt645Client": DLT645Strategy(),
         "Iec61850": IEC61850Strategy(),
+        "Iec61850Server": IEC61850Strategy(),
+        "Iec61850Client": IEC61850Strategy(),
     }
     return strategy_map.get(protocol_type, ModbusStrategy())

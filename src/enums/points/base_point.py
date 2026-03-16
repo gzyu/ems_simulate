@@ -36,8 +36,15 @@ class BasePoint:
     ) -> None:
         self._is_updating = False
         self._rtu_addr: int = int(rtu_addr)
-        self._address: int = int(address, 16)
-        self._hex_address: str = str(address)
+        
+        # Handle string addresses like IEC61850 paths
+        if isinstance(address, str) and not address.startswith("0x") and not address.isnumeric() and any(c.isalpha() and c.lower() not in 'abcdef' for c in address):
+            self._address = address
+            self._hex_address = address
+        else:
+            self._address: int = int(address, 16) if isinstance(address, str) else int(address)
+            self._hex_address: str = str(address)
+            
         self._func_code: int = int(func_code)
         self._name: str = name
         self._code: str = code

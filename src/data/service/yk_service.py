@@ -86,6 +86,19 @@ class YkService:
                 command_type=item.get("command_type", 0),
             )
 
+        elif protocol_type in [ProtocolType.Iec61850Server, ProtocolType.Iec61850Client]:
+            address = item["reg_addr"]
+            return Yk(
+                rtu_addr=1,
+                address=address,
+                bit=None,
+                name=item["name"],
+                code=item["code"],
+                value=0,
+                frame_type=2,
+                command_type=item.get("command_type", 0),
+            )
+
         elif protocol_type in [ProtocolType.Dlt645Server, ProtocolType.Dlt645Client]:
             return Yk(
                 rtu_addr=1,

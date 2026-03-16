@@ -52,6 +52,7 @@ from src.enums.points.protocol_config import (
     ModbusConfig,
     IEC104Config,
     DLT645Config,
+    IEC61850Config,
     get_default_protocol_config,
     create_protocol_config,
 )
@@ -74,6 +75,7 @@ __all__ = [
     "ModbusConfig",
     "IEC104Config",
     "DLT645Config",
+    "IEC61850Config",
     "get_default_protocol_config",
     "create_protocol_config",
     "decimal_to_hex_formatted",

@@ -83,4 +83,16 @@ class YxService:
                 frame_type=1,
             )
 
+        elif protocol_type in [ProtocolType.Iec61850Server, ProtocolType.Iec61850Client]:
+            address = item["reg_addr"]
+            return Yx(
+                rtu_addr=1,
+                address=address,
+                bit=None,
+                name=item["name"],
+                code=item["code"],
+                value=0,
+                frame_type=1,
+            )
+
         return None

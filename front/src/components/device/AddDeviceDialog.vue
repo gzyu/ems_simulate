@@ -23,7 +23,12 @@
         :serial-ports="serialPorts"
       />
       
-      <DeviceFormPoints ref="uploadCompRef" @file-change="(f) => selectedFile = f" />
+      <DeviceFormPoints 
+        ref="uploadCompRef" 
+        :protocol-type="form.protocol_type"
+        @file-change="(f) => selectedFile = f" 
+        @icd-file-change="(f) => selectedIcdFile = f" 
+      />
     </el-form>
     
     <template #footer>
@@ -49,7 +54,7 @@ import DeviceFormConfig from './DeviceFormConfig.vue';
 import DeviceFormPoints from './DeviceFormPoints.vue';
 
 // API
-import { createChannel, importPoints, getChannel, updateChannel, getSerialPorts, reloadDeviceConfig, getProtocolConfig, restartDevice } from '@/api/channelApi';
+import { createChannel, importPoints, importIcdPoints, getChannel, updateChannel, getSerialPorts, reloadDeviceConfig, getProtocolConfig, restartDevice } from '@/api/channelApi';
 import { getAllDeviceGroups, type DeviceGroupInfo } from '@/api/deviceGroupApi';
 import type { ChannelCreateRequest, ProtocolOption } from '@/types/channel';
 
@@ -72,6 +77,7 @@ const loading = ref(false);
 const originalName = ref('');
 const mediaType = ref<'serial' | 'network'>('network');
 const selectedFile = ref<File | null>(null);
+const selectedIcdFile = ref<File | null>(null);
 const deviceGroupOptions = ref<DeviceGroupInfo[]>([]);
 const serialPorts = ref<Array<{device: string, description: string}>>([]);
 const protocols = ref<ProtocolOption[]>([]);
@@ -142,6 +148,7 @@ const resetForm = () => {
     group_id: null
   });
   selectedFile.value = null;
+  selectedIcdFile.value = null;
   uploadCompRef.value?.clearFiles();
 };
 
@@ -164,7 +171,11 @@ const handleSubmit = async () => {
         ElMessage.success('创建成功');
       }
       
-      if (selectedFile.value) await importPoints(resultId, selectedFile.value);
+      if (selectedIcdFile.value) {
+        await importIcdPoints(resultId, selectedIcdFile.value);
+      } else if (selectedFile.value) {
+        await importPoints(resultId, selectedFile.value);
+      }
       
       emit('success', form.name, isEditMode.value, originalName.value);
       dialogVisible.value = false;

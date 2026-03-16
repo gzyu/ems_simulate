@@ -98,6 +98,21 @@ class YtService:
                 frame_type=3,
             )
 
+        elif protocol_type in [ProtocolType.Iec61850Server, ProtocolType.Iec61850Client]:
+            address = item["reg_addr"]
+            return Yt(
+                rtu_addr=1,
+                address=address,
+                name=item["name"],
+                code=item["code"],
+                value=0,
+                max_value_limit=item["max_limit"],
+                min_value_limit=item["min_limit"],
+                add_coe=item["add_coe"],
+                mul_coe=item["mul_coe"],
+                frame_type=3,
+            )
+
         elif protocol_type in [ProtocolType.Dlt645Server, ProtocolType.Dlt645Client]:
             return Yt(
                 rtu_addr=1,

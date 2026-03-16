@@ -16,6 +16,7 @@ export enum ProtocolType {
     ModbusTcp = 1,
     Iec104 = 2,
     Dlt645 = 3,
+    Iec61850 = 4,
 }
 
 // 协议选项

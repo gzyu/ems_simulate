@@ -1,6 +1,6 @@
 """
 协议配置模块
-为不同协议（Modbus、IEC104、DLT645）提供特定的配置参数
+为不同协议（Modbus、IEC104、DLT645、IEC61850）提供特定的配置参数
 """
 
 from dataclasses import dataclass, field
@@ -94,6 +94,32 @@ class DLT645Config:
         )
 
 
+@dataclass
+class IEC61850Config:
+    """IEC61850 协议配置"""
+    port: int = 102                   # MMS TCP 端口
+    model_name: str = "EMS"            # IED 模型名称
+    ied_name: str = "EMSDevice"        # IED 名称
+    ld_name: str = "GenericLD"         # 逻辑设备名称
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "port": self.port,
+            "model_name": self.model_name,
+            "ied_name": self.ied_name,
+            "ld_name": self.ld_name,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "IEC61850Config":
+        return cls(
+            port=data.get("port", 102),
+            model_name=data.get("model_name", "EMS"),
+            ied_name=data.get("ied_name", "EMSDevice"),
+            ld_name=data.get("ld_name", "GenericLD"),
+        )
+
+
 # 协议配置工厂
 def get_default_protocol_config(protocol_type: str) -> Optional[Any]:
     """根据协议类型获取默认配置"""
@@ -106,6 +132,8 @@ def get_default_protocol_config(protocol_type: str) -> Optional[Any]:
         "Iec104Client": IEC104Config(),
         "Dlt645Server": DLT645Config(),
         "Dlt645Client": DLT645Config(),
+        "Iec61850Server": IEC61850Config(),
+        "Iec61850Client": IEC61850Config(),
     }
     return config_map.get(protocol_type)
 
@@ -118,4 +146,6 @@ def create_protocol_config(protocol_type: str, data: Dict[str, Any]) -> Optional
         return IEC104Config.from_dict(data)
     elif protocol_type in ["Dlt645Server", "Dlt645Client"]:
         return DLT645Config.from_dict(data)
+    elif protocol_type in ["Iec61850Server", "Iec61850Client"]:
+        return IEC61850Config.from_dict(data)
     return None

@@ -83,6 +83,7 @@ class MessageFormatter:
             ProtocolType.ModbusTcpClient,
             ProtocolType.Iec104Client,
             ProtocolType.Dlt645Client,
+            ProtocolType.Iec61850Client,
         ]
 
         # 判断协议类型以选择解析方式
@@ -178,4 +179,3 @@ class MessageFormatter:
         if self._handler and hasattr(self._handler, 'get_avg_time'):
             return self._handler.get_avg_time()
         return {}
-

@@ -73,6 +73,8 @@ class ChannelService:
                 return ProtocolType.Iec104Client
             elif protocol == 3:
                 return ProtocolType.Dlt645Client
+            elif protocol == 4:
+                return ProtocolType.Iec61850Client
 
         # TCP 服务端
         elif conn_type == 2:
@@ -82,6 +84,8 @@ class ChannelService:
                 return ProtocolType.Iec104Server
             elif protocol == 3:
                 return ProtocolType.Dlt645Server
+            elif protocol == 4:
+                return ProtocolType.Iec61850Server
 
         # 串口从站（服务端模式 - 被采集）
         elif conn_type == 3:

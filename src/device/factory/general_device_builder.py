@@ -90,6 +90,12 @@ class GeneralDeviceBuilder:
     def initDlt645Client(self) -> None:
         self.general_device.initDlt645Client()
 
+    def initIec61850Server(self) -> None:
+        self.general_device.initIec61850Server()
+
+    def initIec61850Client(self) -> None:
+        self.general_device.initIec61850Client()
+
     def importDataPoints(self) -> None:
         """导入测点数据"""
         if self.import_method == DataSource.Db:
@@ -127,6 +133,10 @@ class GeneralDeviceBuilder:
             return self.generalDeviceDlt645Server
         elif protocol_type == ProtocolType.Dlt645Client:
             return self.generalDeviceDlt645Client
+        elif protocol_type == ProtocolType.Iec61850Server:
+            return self.generalDeviceIec61850Server
+        elif protocol_type == ProtocolType.Iec61850Client:
+            return self.generalDeviceIec61850Client
         return None
 
     @property
@@ -210,5 +220,25 @@ class GeneralDeviceBuilder:
             meter_addr = channel.get("rtu_addr", "000000000000")
             self.general_device.meter_address = str(meter_addr) if meter_addr else "000000000000"
         self.initDlt645Client()
+        self.general_device.setSpecialDataPointValues()
+        return self.general_device
+
+    @property
+    def generalDeviceIec61850Server(self) -> Device:
+        print("初始化IEC61850服务端")
+        self.setDeviceId(self.device_id)
+        self.setDeviceName(name=self.device_name)
+        self.importDataPoints()
+        self.initIec61850Server()
+        self.general_device.setSpecialDataPointValues()
+        return self.general_device
+
+    @property
+    def generalDeviceIec61850Client(self) -> Device:
+        print("初始化IEC61850客户端")
+        self.setDeviceId(self.device_id)
+        self.setDeviceName(name=self.device_name)
+        self.importDataPoints()
+        self.initIec61850Client()
         self.general_device.setSpecialDataPointValues()
         return self.general_device

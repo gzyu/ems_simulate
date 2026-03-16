@@ -108,6 +108,23 @@ const filteredProtocols = computed(() => {
 
 const baudRates = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
 
+// 协议默认端口映射
+const PROTOCOL_DEFAULT_PORTS: Record<number, number> = {
+  0: 502,    // Modbus RTU (串口，一般不用端口)
+  1: 502,    // Modbus TCP
+  2: 2404,   // IEC 104
+  3: 502,    // DL/T 645
+  4: 102,    // IEC 61850
+};
+
+// 监听协议切换，自动更新默认端口
+watch(() => props.modelValue.protocol_type, (newType) => {
+  const defaultPort = PROTOCOL_DEFAULT_PORTS[newType];
+  if (defaultPort !== undefined) {
+    props.modelValue.port = defaultPort;
+  }
+});
+
 const onMediaTypeChange = (val: any) => {
   emit('update:mediaType', val);
   // 切换介质时自动调整 conn_type

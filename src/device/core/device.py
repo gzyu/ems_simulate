@@ -28,6 +28,7 @@ from src.device.protocol.base_handler import ProtocolHandler, ServerHandler, Cli
 from src.device.protocol.modbus_handler import ModbusServerHandler, ModbusClientHandler
 from src.device.protocol.iec104_handler import IEC104ServerHandler, IEC104ClientHandler
 from src.device.protocol.dlt645_handler import DLT645ServerHandler, DLT645ClientHandler
+from src.device.protocol.iec61850_handler import IEC61850ServerHandler, IEC61850ClientHandler
 from src.device.core.point.point_calculator import PointCalculator
 from src.enums.point_data import SimulateMethod, Yc, Yx, Yt, Yk, DeviceType, BasePoint
 from src.enums.modbus_def import ProtocolType
@@ -144,6 +145,8 @@ class Device:
             ProtocolType.Iec104Client: lambda: IEC104ClientHandler(self.log),
             ProtocolType.Dlt645Server: lambda: DLT645ServerHandler(self.log),
             ProtocolType.Dlt645Client: lambda: DLT645ClientHandler(self.log),
+            ProtocolType.Iec61850Server: lambda: IEC61850ServerHandler(self.log),
+            ProtocolType.Iec61850Client: lambda: IEC61850ClientHandler(self.log),
         }
         creator = handler_map.get(self.protocol_type)
         if creator:
@@ -213,6 +216,16 @@ class Device:
     def initDlt645Client(self) -> None:
         """初始化 DLT645 客户端"""
         self.protocol_type = ProtocolType.Dlt645Client
+        self.initProtocol()
+
+    def initIec61850Server(self) -> None:
+        """初始化 IEC 61850 服务器"""
+        self.protocol_type = ProtocolType.Iec61850Server
+        self.initProtocol()
+
+    def initIec61850Client(self) -> None:
+        """初始化 IEC 61850 客户端"""
+        self.protocol_type = ProtocolType.Iec61850Client
         self.initProtocol()
 
     # ===== 设备启停 =====
@@ -493,6 +506,7 @@ class Device:
             ProtocolType.ModbusTcpClient,
             ProtocolType.Iec104Client,
             ProtocolType.Dlt645Client,
+            ProtocolType.Iec61850Client,
         ]
 
         return self.data_exporter.get_table_data(

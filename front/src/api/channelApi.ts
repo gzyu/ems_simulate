@@ -72,6 +72,29 @@ export async function importPoints(channelId: number, file: File): Promise<Point
 }
 
 /**
+ * 导入 IEC 61850 ICD 文件
+ */
+export async function importIcdPoints(channelId: number, file: File): Promise<PointImportResult> {
+    try {
+        const formData = new FormData();
+        formData.append('channel_id', channelId.toString());
+        formData.append('file', file);
+
+        const response = await instance.post('/channel/import_icd', formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
+
+        return response.data.data;
+    } catch (error) {
+        console.error('Error importing ICD file:', error);
+        throw error;
+    }
+}
+
+
+/**
  * 创建并启动设备
  */
 export async function createAndStartDevice(channelId: number): Promise<{ device_name: string }> {
