@@ -124,7 +124,7 @@ class IEC61850Server:
                 iec61850.IEC61850_FLOAT32,
                 FC_MX, 0, 0, 0
             )
-            ref = f"{self.ld_name}/MMXU1.{do_name}.mag.f"
+            ref = f"{self.model_name}{self.ld_name}/MMXU1.{do_name}.mag.f"
             self._point_attrs[key] = da
             self._keep_alive.extend([do_name, do, mag, da])
 
@@ -136,7 +136,7 @@ class IEC61850Server:
                 iec61850.IEC61850_BOOLEAN,
                 FC_ST, 0, 0, 0
             )
-            ref = f"{self.ld_name}/GGIO1.{do_name}.stVal"
+            ref = f"{self.model_name}{self.ld_name}/GGIO1.{do_name}.stVal"
             self._point_attrs[key] = da
             self._keep_alive.extend([do_name, do, da])
 
@@ -148,7 +148,7 @@ class IEC61850Server:
                 iec61850.IEC61850_BOOLEAN,
                 FC_CO, 0, 0, 0
             )
-            ref = f"{self.ld_name}/GGIO1.{do_name}.ctlVal"
+            ref = f"{self.model_name}{self.ld_name}/GGIO1.{do_name}.ctlVal"
             self._point_attrs[key] = da
             self._keep_alive.extend([do_name, do, da])
 
@@ -160,13 +160,15 @@ class IEC61850Server:
                 iec61850.IEC61850_FLOAT32,
                 FC_CO, 0, 0, 0
             )
-            ref = f"{self.ld_name}/GGIO2.{do_name}.ctlVal"
+            ref = f"{self.model_name}{self.ld_name}/GGIO2.{do_name}.ctlVal"
             self._point_attrs[key] = da
             self._keep_alive.extend([do_name, do, da])
 
         if ref:
             self._point_refs[key] = ref
-            log.debug(f"IEC61850 添加测点: address={address}, frame_type={frame_type}, ref={ref}")
+            log.info(f"IEC61850 已成功添加测点: address={address}, frame_type={frame_type}, ref={ref}")
+        else:
+            log.error(f"IEC61850 添加测点失败: address={address}, frame_type={frame_type}")
 
         return ref
 
@@ -220,6 +222,12 @@ class IEC61850Server:
         key = (address, frame_type)
         da = self._point_attrs.get(key)
         if not da:
+            log.warning(f"IEC61850 读取测点值时未找到 DataAttribute: address={address}, frame_type={frame_type}")
+            return 0
+
+        # 类型安全检查：确保 da 是 SWIG 包装的 DataAttribute 对象
+        if not hasattr(da, 'this'):
+            log.error(f"IEC61850 数据属性对象类型错误: address={address}, type={type(da)}")
             return 0
 
         try:
@@ -230,8 +238,7 @@ class IEC61850Server:
                 value = iec61850.IedServer_getBooleanAttributeValue(self._server, da)
                 return bool(value) if value is not None else False
         except Exception as e:
-            from .log import log
-            log.error(f"IEC61850 读取测点值失败: address={address}, error={e}")
+            log.error(f"IEC61850 调用底层获取值函数失败: address={address}, error={e}")
             return 0
 
     def set_point_value(self, address: int, value: Any, frame_type: int) -> None:
@@ -248,6 +255,11 @@ class IEC61850Server:
         key = (address, frame_type)
         da = self._point_attrs.get(key)
         if not da:
+            log.warning(f"IEC61850 设置测点值时未找到 DataAttribute: address={address}, frame_type={frame_type}")
+            return
+
+        if not hasattr(da, 'this'):
+            log.error(f"IEC61850 数据属性对象类型错误(设置值): address={address}, type={type(da)}")
             return
 
         try:
@@ -260,8 +272,7 @@ class IEC61850Server:
                     self._server, da, bool(value)
                 )
         except Exception as e:
-            from .log import log
-            log.error(f"IEC61850 设置测点值失败: address={address}, value={value}, error={e}")
+            log.error(f"IEC61850 调用底层设置值函数失败: address={address}, value={value}, error={e}")
 
     def destroy(self):
         """销毁服务器和模型"""

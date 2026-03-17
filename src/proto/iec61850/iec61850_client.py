@@ -57,14 +57,17 @@ class IEC61850Client:
 
     def _build_ref(self, address: int, frame_type: int) -> str:
         """根据地址和帧类型构建 MMS 引用路径"""
+        # 确保 address 是合法的 IEC 61850 节点名称，与服务端保持一致
+        safe_addr = str(address).replace('.', '_').replace('/', '_').replace('\\', '_').replace('-', '_')
+
         if frame_type == 0:  # 遥测
-            return f"{self.model_name}{self.ld_name}/MMXU1.MV{address}.mag.f"
+            return f"{self.model_name}{self.ld_name}/MMXU1.MV_{safe_addr}.mag.f"
         elif frame_type == 1:  # 遥信
-            return f"{self.model_name}{self.ld_name}/GGIO1.SPS{address}.stVal"
+            return f"{self.model_name}{self.ld_name}/GGIO1.SPS_{safe_addr}.stVal"
         elif frame_type == 2:  # 遥控
-            return f"{self.model_name}{self.ld_name}/GGIO1.SPC{address}.ctlVal"
+            return f"{self.model_name}{self.ld_name}/GGIO1.SPC_{safe_addr}.ctlVal"
         elif frame_type == 3:  # 遥调
-            return f"{self.model_name}{self.ld_name}/GGIO2.APC{address}.ctlVal"
+            return f"{self.model_name}{self.ld_name}/GGIO2.APC_{safe_addr}.ctlVal"
         return ""
 
     def add_point(self, address: int, frame_type: int) -> str:
@@ -86,12 +89,22 @@ class IEC61850Client:
         """连接到 IEC 61850 服务器"""
         try:
             self._connection = iec61850.IedConnection_create()
-            error = iec61850.IedConnection_connect(
+            result = iec61850.IedConnection_connect(
                 self._connection, self.ip, self.port
             )
+            
+            # 处理返回值，可能是 int 或 (None, int)
+            error = result
+            if isinstance(result, (list, tuple)):
+                error = result[1]
+                
             if error == iec61850.IED_ERROR_OK:
                 self._is_connected = True
                 log.info(f"IEC 61850 客户端已连接: {self.ip}:{self.port}")
+                
+                # 自动发现模型
+                self.discover_model()
+                
                 return True
             else:
                 log.error(f"IEC 61850 连接失败, 错误码: {error}")
@@ -209,25 +222,109 @@ class IEC61850Client:
 
         return False
 
+    def _get_list_from_linked_list(self, linked_list) -> List[str]:
+        """从 LinkedList 中提取字符串列表"""
+        items = []
+        item = iec61850.LinkedList_getNext(linked_list)
+        while item:
+            items.append(iec61850.toCharP(item.data))
+            item = iec61850.LinkedList_getNext(item)
+        iec61850.LinkedList_destroy(linked_list)
+        return items
+
+    def discover_model(self):
+        """动态发现并映射服务端的数据模型"""
+        if not self._connection or not self._is_connected:
+            return
+
+        log.info("开始 IEC 61850 动态模型发现...")
+        start_time = time.time()
+
+        # 1. 获取逻辑设备列表
+        result = iec61850.IedConnection_getLogicalDeviceList(self._connection)
+        ld_list = result[0] if isinstance(result, (list, tuple)) else result
+        error = result[1] if isinstance(result, (list, tuple)) else 0
+        
+        if error != iec61850.IED_ERROR_OK:
+            log.error(f"发现模型失败: 无法获取逻辑设备列表 (错误码: {error})")
+            return
+        
+        lds = self._get_list_from_linked_list(ld_list)
+        log.info(f"发现逻辑设备: {lds}")
+        
+        discovered_count = 0
+        for ld in lds:
+            # 2. 获取逻辑节点列表 (使用 getLogicalDeviceDirectory)
+            result = iec61850.IedConnection_getLogicalDeviceDirectory(self._connection, ld)
+            ln_list = result[0] if isinstance(result, (list, tuple)) else result
+            error = result[1] if isinstance(result, (list, tuple)) else 0
+            
+            if error != iec61850.IED_ERROR_OK:
+                log.debug(f"跳过逻辑设备 {ld}: 无法获取目录 (错误码: {error})")
+                continue
+            
+            lns = self._get_list_from_linked_list(ln_list)
+            log.info(f"逻辑设备 {ld} 下发现逻辑节点: {lns}")
+            for ln in lns:
+                ln_ref = f"{ld}/{ln}"
+                
+                # 3. 获取数据对象列表 (使用 getLogicalNodeDirectory)
+                result = iec61850.IedConnection_getLogicalNodeDirectory(self._connection, ln_ref, 1) # 1 = ACSI_DIR_DO
+                do_list = result[0] if isinstance(result, (list, tuple)) else result
+                error = result[1] if isinstance(result, (list, tuple)) else 0
+                
+                if error != iec61850.IED_ERROR_OK:
+                    log.info(f"跳过逻辑节点 {ln_ref}: 无法获取目录 (错误码: {error})")
+                    continue
+                
+                dos = self._get_list_from_linked_list(do_list)
+                log.info(f"逻辑节点 {ln_ref} 下发现数据对象: {dos}")
+                for do in dos:
+                    full_do_ref = f"{ln_ref}.{do}"
+                    
+                    try:
+                        if ln == "MMXU1" and do.startswith("MV_"):
+                            addr = int(do[3:])
+                            ref = f"{full_do_ref}.mag.f"
+                            self._point_refs[(addr, 0)] = ref
+                            discovered_count += 1
+                            log.info(f"映射测点: ({addr}, 0) -> {ref}")
+                        elif ln == "GGIO1" and do.startswith("SPS_"):
+                            addr = int(do[4:])
+                            ref = f"{full_do_ref}.stVal"
+                            self._point_refs[(addr, 1)] = ref
+                            discovered_count += 1
+                            log.info(f"映射测点: ({addr}, 1) -> {ref}")
+                        elif ln == "GGIO1" and do.startswith("SPC_"):
+                            addr = int(do[4:])
+                            ref = f"{full_do_ref}.ctlVal"
+                            self._point_refs[(addr, 2)] = ref
+                            discovered_count += 1
+                            log.info(f"映射测点: ({addr}, 2) -> {ref}")
+                        elif ln == "GGIO2" and do.startswith("APC_"):
+                            addr = int(do[4:])
+                            ref = f"{full_do_ref}.ctlVal"
+                            self._point_refs[(addr, 3)] = ref
+                            discovered_count += 1
+                            log.info(f"映射测点: ({addr}, 3) -> {ref}")
+                    except ValueError:
+                        continue
+
+        log.info(f"IEC 61850 动态发现完成, 耗时: {time.time() - start_time:.2f}s, 发现并映射了 {discovered_count} 个测点")
+
     def browse_logical_devices(self) -> List[str]:
         """浏览远端 IED 的逻辑设备列表"""
         if not self._connection or not self._is_connected:
             return []
 
         try:
-            [device_list, error] = iec61850.IedConnection_getLogicalDeviceList(
+            [ld_list, error] = iec61850.IedConnection_getLogicalDeviceList(
                 self._connection
             )
             if error != iec61850.IED_ERROR_OK:
                 return []
 
-            devices = []
-            device = iec61850.LinkedList_getNext(device_list)
-            while device:
-                devices.append(iec61850.toCharP(device.data))
-                device = iec61850.LinkedList_getNext(device)
-            iec61850.LinkedList_destroy(device_list)
-            return devices
+            return self._get_list_from_linked_list(ld_list)
         except Exception as e:
             log.error(f"浏览逻辑设备失败: {e}")
             return []
