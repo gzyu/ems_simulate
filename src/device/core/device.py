@@ -173,6 +173,12 @@ class Device:
         self.protocol_handler = self._create_protocol_handler()
         self.protocol_handler.initialize(self._build_protocol_config())
 
+        # IEC61850 客户端: 注册测点发现回调
+        if self.protocol_type == ProtocolType.Iec61850Client:
+            self.protocol_handler.set_on_points_discovered(
+                self._on_iec61850_points_discovered
+            )
+
         # 添加测点
         all_points = self.point_manager.get_all_points()
         self.protocol_handler.add_points(all_points)
@@ -227,6 +233,95 @@ class Device:
         """初始化 IEC 61850 客户端"""
         self.protocol_type = ProtocolType.Iec61850Client
         self.initProtocol()
+
+    def _on_iec61850_points_discovered(self, discovered_points: list) -> None:
+        """处理 IEC61850 客户端发现的测点，自动注册到系统
+
+        Args:
+            discovered_points: 发现的测点列表，
+                每个元素为 {"address": int, "frame_type": int, "ref": str}
+        """
+        frame_type_names = {0: "遥测", 1: "遥信", 2: "遥控", 3: "遥调"}
+        added_count = 0
+        slave_id = 1  # IEC61850 默认使用从机地址 1
+
+        for dp in discovered_points:
+            addr = dp["address"]
+            ft = dp["frame_type"]
+            ref = dp["ref"]
+
+            # 检查是否已存在（根据 address + frame_type 去重）
+            existing = self.point_manager.find_point_by_address_and_type(addr, ft)
+            if existing:
+                continue
+
+            # 根据 frame_type 创建对应的 BasePoint 对象
+            auto_code = str(addr)
+            ft_label = frame_type_names.get(ft, str(ft))
+            auto_name = str(addr)
+
+            point = None
+            if ft == 0:  # 遥测
+                point = Yc(
+                    rtu_addr=str(slave_id),
+                    address=str(addr),
+                    func_code=3,
+                    name=auto_name,
+                    code=auto_code,
+                    value=0,
+                    frame_type=0,
+                )
+            elif ft == 1:  # 遥信
+                point = Yx(
+                    rtu_addr=str(slave_id),
+                    address=str(addr),
+                    func_code=1,
+                    name=auto_name,
+                    code=auto_code,
+                    value=0,
+                    frame_type=1,
+                )
+            elif ft == 2:  # 遥控
+                point = Yk(
+                    rtu_addr=str(slave_id),
+                    address=str(addr),
+                    func_code=5,
+                    name=auto_name,
+                    code=auto_code,
+                    value=0,
+                    frame_type=2,
+                )
+            elif ft == 3:  # 遥调
+                point = Yt(
+                    rtu_addr=str(slave_id),
+                    address=str(addr),
+                    func_code=6,
+                    name=auto_name,
+                    code=auto_code,
+                    value=0,
+                    frame_type=3,
+                )
+
+            if point:
+                # 添加到测点管理器
+                self.point_manager.add_point(slave_id, point)
+
+                # 添加到模拟控制器
+                self.simulation_controller.add_point(
+                    point, SimulateMethod.Random, 1
+                )
+                self.simulation_controller.set_point_status(point, True)
+
+                added_count += 1
+                self.log.info(
+                    f"IEC61850 自动添加测点: {auto_code} ({auto_name}), "
+                    f"address={addr}, frame_type={ft}, ref={ref}"
+                )
+
+        if added_count > 0:
+            self.log.info(f"IEC61850 自动发现并添加了 {added_count} 个测点")
+        else:
+            self.log.info("IEC61850 未发现需要新增的测点（所有测点已存在）")
 
     # ===== 设备启停 =====
 

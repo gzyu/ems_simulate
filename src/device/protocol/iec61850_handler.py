@@ -151,6 +151,16 @@ class IEC61850ClientHandler(ClientHandler):
         super().__init__()
         self._client = None
         self._log = log
+        self._on_points_discovered = None  # 测点发现回调
+
+    def set_on_points_discovered(self, callback):
+        """设置测点发现回调
+
+        Args:
+            callback: 回调函数，签名为 callback(discovered_points: List[Dict])
+                      每个 dict 包含 {"address": int, "frame_type": int, "ref": str}
+        """
+        self._on_points_discovered = callback
 
     def initialize(self, config: Dict[str, Any]) -> None:
         """初始化 IEC 61850 客户端
@@ -192,6 +202,17 @@ class IEC61850ClientHandler(ClientHandler):
             if self._client:
                 is_connected = await self._client.connect()
                 self._is_running = is_connected
+
+                # 连接成功后，通知上层发现的测点
+                if is_connected and self._on_points_discovered:
+                    discovered = self._client.get_discovered_points()
+                    if discovered:
+                        try:
+                            self._on_points_discovered(discovered)
+                        except Exception as e:
+                            if self._log:
+                                self._log.error(f"处理发现的测点时出错: {e}")
+
                 return is_connected
             return False
         except Exception as e:

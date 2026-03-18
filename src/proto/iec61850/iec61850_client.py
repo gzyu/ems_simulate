@@ -232,13 +232,18 @@ class IEC61850Client:
         iec61850.LinkedList_destroy(linked_list)
         return items
 
-    def discover_model(self):
-        """动态发现并映射服务端的数据模型"""
+    def discover_model(self) -> List[Dict[str, Any]]:
+        """动态发现并映射服务端的数据模型
+
+        Returns:
+            发现的测点列表，每个元素为 {"address": int, "frame_type": int, "ref": str}
+        """
         if not self._connection or not self._is_connected:
-            return
+            return []
 
         log.info("开始 IEC 61850 动态模型发现...")
         start_time = time.time()
+        discovered_points: List[Dict[str, Any]] = []
 
         # 1. 获取逻辑设备列表
         result = iec61850.IedConnection_getLogicalDeviceList(self._connection)
@@ -247,12 +252,11 @@ class IEC61850Client:
         
         if error != iec61850.IED_ERROR_OK:
             log.error(f"发现模型失败: 无法获取逻辑设备列表 (错误码: {error})")
-            return
+            return []
         
         lds = self._get_list_from_linked_list(ld_list)
         log.info(f"发现逻辑设备: {lds}")
         
-        discovered_count = 0
         for ld in lds:
             # 2. 获取逻辑节点列表 (使用 getLogicalDeviceDirectory)
             result = iec61850.IedConnection_getLogicalDeviceDirectory(self._connection, ld)
@@ -269,7 +273,7 @@ class IEC61850Client:
                 ln_ref = f"{ld}/{ln}"
                 
                 # 3. 获取数据对象列表 (使用 getLogicalNodeDirectory)
-                result = iec61850.IedConnection_getLogicalNodeDirectory(self._connection, ln_ref, 1) # 1 = ACSI_DIR_DO
+                result = iec61850.IedConnection_getLogicalNodeDirectory(self._connection, ln_ref, 0) # 0 = ACSI_CLASS_DATA_OBJECT
                 do_list = result[0] if isinstance(result, (list, tuple)) else result
                 error = result[1] if isinstance(result, (list, tuple)) else 0
                 
@@ -284,33 +288,46 @@ class IEC61850Client:
                     
                     try:
                         if ln == "MMXU1" and do.startswith("MV_"):
-                            addr = int(do[3:])
+                            addr = do[3:]
                             ref = f"{full_do_ref}.mag.f"
                             self._point_refs[(addr, 0)] = ref
-                            discovered_count += 1
+                            discovered_points.append({"address": addr, "frame_type": 0, "ref": ref})
                             log.info(f"映射测点: ({addr}, 0) -> {ref}")
                         elif ln == "GGIO1" and do.startswith("SPS_"):
-                            addr = int(do[4:])
+                            addr = do[4:]
                             ref = f"{full_do_ref}.stVal"
                             self._point_refs[(addr, 1)] = ref
-                            discovered_count += 1
+                            discovered_points.append({"address": addr, "frame_type": 1, "ref": ref})
                             log.info(f"映射测点: ({addr}, 1) -> {ref}")
                         elif ln == "GGIO1" and do.startswith("SPC_"):
-                            addr = int(do[4:])
+                            addr = do[4:]
                             ref = f"{full_do_ref}.ctlVal"
                             self._point_refs[(addr, 2)] = ref
-                            discovered_count += 1
+                            discovered_points.append({"address": addr, "frame_type": 2, "ref": ref})
                             log.info(f"映射测点: ({addr}, 2) -> {ref}")
                         elif ln == "GGIO2" and do.startswith("APC_"):
-                            addr = int(do[4:])
+                            addr = do[4:]
                             ref = f"{full_do_ref}.ctlVal"
                             self._point_refs[(addr, 3)] = ref
-                            discovered_count += 1
+                            discovered_points.append({"address": addr, "frame_type": 3, "ref": ref})
                             log.info(f"映射测点: ({addr}, 3) -> {ref}")
-                    except ValueError:
+                    except Exception as e:
+                        log.error(f"解析测点地址失败: {do}, 错误: {e}")
                         continue
 
-        log.info(f"IEC 61850 动态发现完成, 耗时: {time.time() - start_time:.2f}s, 发现并映射了 {discovered_count} 个测点")
+        log.info(f"IEC 61850 动态发现完成, 耗时: {time.time() - start_time:.2f}s, 发现并映射了 {len(discovered_points)} 个测点")
+        return discovered_points
+
+    def get_discovered_points(self) -> List[Dict[str, Any]]:
+        """获取当前已映射的测点列表
+
+        Returns:
+            测点列表，每个元素为 {"address": int, "frame_type": int, "ref": str}
+        """
+        return [
+            {"address": addr, "frame_type": ft, "ref": ref}
+            for (addr, ft), ref in self._point_refs.items()
+        ]
 
     def browse_logical_devices(self) -> List[str]:
         """浏览远端 IED 的逻辑设备列表"""

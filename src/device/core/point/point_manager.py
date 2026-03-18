@@ -99,6 +99,22 @@ class PointManager:
                 result.extend(points)
         return result
 
+    def find_point_by_address_and_type(self, address: int, frame_type: int) -> Optional[BasePoint]:
+        """根据地址和帧类型查找测点
+
+        Args:
+            address: 测点地址
+            frame_type: 帧类型 (0=遥测, 1=遥信, 2=遥控, 3=遥调)
+
+        Returns:
+            匹配的测点对象，未找到返回 None
+        """
+        points = self.get_points_by_type(frame_type)
+        for point in points:
+            if point.address == address:
+                return point
+        return None
+
     def get_all_points(self) -> List[BasePoint]:
         """获取所有测点"""
         result: List[BasePoint] = []
