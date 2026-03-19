@@ -812,6 +812,14 @@ const handleSlaveAdded = async () => {
   await fetchSlaveList();
 };
 
+const reloadDatas = async () => {
+  await fetchSlaveList();
+};
+
+defineExpose({
+  reloadDatas
+});
+
 onUnmounted(() => { stopAutoRefresh(); });
 </script>
 

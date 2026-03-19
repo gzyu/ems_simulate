@@ -68,7 +68,7 @@
     </el-row>
 
     <!-- 第三行：从站/测点数据 -->
-    <Slave />
+    <Slave ref="slaveRef" />
     
     <!-- 报文查看对话框 -->
     <MessageViewDialog
@@ -114,6 +114,7 @@ const deviceStatusStr = ref<any>("");
 const simulationStatus = ref<boolean>(false);
 const simulationStatusStr = ref<any>("");
 const showMessageDialog = ref<boolean>(false);
+const slaveRef = ref<any>(null);
 
 const isSerialMode = computed(() => {
   const type = communicationType.value;
@@ -162,6 +163,13 @@ const toggleDevice = async () => {
       if (await startDevice(routeName.value)) {
         deviceStatus.value = true;
         deviceStatusStr.value = "运行中";
+        ElMessage.success("启动设备成功");
+
+        // 当设备启动成功（例如 IEC 61850 动态发现测点后），重新拉取此设备的测点表
+        if (communicationType.value && String(communicationType.value)=="Iec61850Client") {
+          slaveRef.value.reloadDatas();
+          ElMessage.success('已自动刷新测点表格');
+        }
       } else {
         ElMessage.error("启动设备失败");
       }

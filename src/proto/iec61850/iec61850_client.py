@@ -13,7 +13,7 @@ try:
     HAS_IEC61850 = True
 except ImportError:
     HAS_IEC61850 = False
-    log.warning("pyiec61850 未安装，IEC 61850 功能不可用。请执行: pip install pyiec61850")
+    log.warning("pyiec61850 未安装，IEC 61850 功能不可用。请执行: pip install pyiec61850-ng==1.6.1.1")
 
 
 # IEC 61850 功能约束 (Functional Constraint)
