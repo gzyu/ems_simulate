@@ -134,7 +134,7 @@ class ModbusServerHandler(ServerHandler):
             self._server.setValueByAddress(
                 point.func_code, slave_id, point.address, write_val, point.decode
             )
-            self._log.info(f"Modbus 客户端写入测点 {point.code} 成功: value={write_val}")
+            self._log.info(f"写入测点 {point.code} 成功: value={write_val}")
             return True
 
         return False

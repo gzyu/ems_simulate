@@ -556,8 +556,11 @@ class ModbusServer:
                 registers[0] = ((registers[0] & 0xFF) << 8) | ((registers[0] >> 8) & 0xFF)
 
         # 设置寄存器值
-        if func_code == 10:
-            func_code = 6
+        # 遥测点 func_code=3 (读保持寄存器) 写入时需要转为 func_code=6 (写单寄存器)
+        # 遥调点 func_code=6 (写单寄存器) 直接使用
+        # func_code=10/16 (写多寄存器) 转为 func_code=3
+        if func_code in (3, 10, 16):
+            func_code = 3
         
         slave_ctx = self.slaves[rtu_addr]
         if isinstance(slave_ctx, CallbackDeviceContext):

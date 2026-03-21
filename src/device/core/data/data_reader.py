@@ -56,12 +56,12 @@ class DataReader:
     def _get_change_source(self) -> ChangeSource:
         """根据协议处理器类型获取变更来源
 
-        服务端设备：外部客户端通过协议写入，属于协议远程修改
-        客户端设备：从远程服务器读取数据变化，属于客户端读取
+        服务端设备：get_slave_values 是从自己的内存寄存器读取值，
+                  不是远程修改，应使用 INTERNAL。
+                  真正的远程客户端写入通过 _on_modbus_client_write 回调处理。
+        客户端设备：从远程服务器读取数据变化，属于客户端读取。
         """
-        if isinstance(self._handler, ServerHandler):
-            return ChangeSource.PROTOCOL
-        elif isinstance(self._handler, ClientHandler):
+        if isinstance(self._handler, ClientHandler):
             return ChangeSource.CLIENT_READ
         return ChangeSource.INTERNAL
 

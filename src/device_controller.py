@@ -188,18 +188,6 @@ class DeviceController:
                 )
                 general_device.name = channel_name
                 
-                # 仅服务端自动启动数据更新线程（用于同步内存变更）
-                # 客户端需要手动开启或点击自动读取，避免自动轮询外部设备
-                is_client = channel_protocol_type in [
-                    ProtocolType.ModbusTcpClient,
-                    ProtocolType.Iec104Client,
-                    ProtocolType.Dlt645Client,
-                    ProtocolType.Iec61850Client,
-                ]
-                
-                if not is_client:
-                    general_device.data_update_thread.start()
-                
                 self.device_list.append(general_device)
                 self.device_map[general_device.name] = general_device
 

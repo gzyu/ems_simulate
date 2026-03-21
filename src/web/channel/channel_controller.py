@@ -392,7 +392,17 @@ async def create_and_start_device(req: CreateAndStartDeviceRequest, request: Req
             is_start=True,
         )
         general_device.name = channel_name
-        general_device.data_update_thread.start()
+        
+        # 仅客户端设备启动数据更新线程（从远程服务器读取数据）
+        # 服务端设备不需要，因为数据由用户手动设置或远程客户端写入
+        is_client = channel_protocol_type in [
+            ProtocolType.ModbusTcpClient,
+            ProtocolType.Iec104Client,
+            ProtocolType.Dlt645Client,
+            ProtocolType.Iec61850Client,
+        ]
+        if is_client:
+            general_device.data_update_thread.start()
         
         # 添加到设备控制器
         device_controller = request.app.state.device_controller
@@ -598,7 +608,14 @@ async def _reload_device_instance(device_controller, channel_id: int, is_start: 
     )
     new_device.name = device_name
     
-    if is_start:
+    # 仅客户端设备启动数据更新线程
+    is_client = channel_protocol_type in [
+        ProtocolType.ModbusTcpClient,
+        ProtocolType.Iec104Client,
+        ProtocolType.Dlt645Client,
+        ProtocolType.Iec61850Client,
+    ]
+    if is_start and is_client:
         new_device.data_update_thread.start()
     
     device_controller.device_list.append(new_device)
