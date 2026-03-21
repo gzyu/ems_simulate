@@ -15,17 +15,17 @@
       label-position="right"
     >
       <el-form-item label="组编码" prop="code">
-        <el-input 
-          v-model="form.code" 
+        <el-input
+          v-model="form.code"
           placeholder="请输入设备组编码，如 GROUP1"
           :disabled="isEditMode"
         />
       </el-form-item>
-      
+
       <el-form-item label="组名称" prop="name">
         <el-input v-model="form.name" placeholder="请输入设备组名称" />
       </el-form-item>
-      
+
       <el-form-item label="父级设备组" prop="parent_id">
         <el-tree-select
           v-model="form.parent_id"
@@ -37,7 +37,7 @@
           style="width: 100%"
         />
       </el-form-item>
-      
+
       <el-form-item label="描述" prop="description">
         <el-input
           v-model="form.description"
@@ -47,12 +47,18 @@
         />
       </el-form-item>
     </el-form>
-    
+
     <template #footer>
       <div class="dialog-footer">
         <el-button @click="handleClose" round>取消</el-button>
-        <el-button type="primary" :loading="loading" @click="handleSubmit" round :icon="Check">
-          {{ isEditMode ? '保存修改' : '确认添加' }}
+        <el-button
+          type="primary"
+          :loading="loading"
+          @click="handleSubmit"
+          round
+          :icon="Check"
+        >
+          {{ isEditMode ? "保存修改" : "确认添加" }}
         </el-button>
       </div>
     </template>
@@ -77,6 +83,7 @@ const props = defineProps<{
   visible: boolean;
   groupId?: number | null;
   parentOptions?: DeviceGroupTreeNode[];
+  initialParentId?: number | null;
 }>();
 
 const emit = defineEmits<{
@@ -109,12 +116,19 @@ const rules: FormRules = {
   ],
 };
 
-watch(() => [props.visible, props.groupId], async ([v, gid]) => {
-  if (v && gid) {
-    try {
-      const g = await getDeviceGroup(gid as number);
-      if (g) Object.assign(form, { code: g.code, name: g.name, parent_id: g.parent_id, description: g.description || '' });
-    } catch (e) {}
+watch(() => [props.visible, props.groupId, props.initialParentId], async ([v, gid, initPid]) => {
+  if (v) {
+    if (gid) {
+      try {
+        const g = await getDeviceGroup(gid as number);
+        if (g) Object.assign(form, { code: g.code, name: g.name, parent_id: g.parent_id, description: g.description || '' });
+      } catch (e) {}
+    } else {
+      resetForm();
+      if (initPid) {
+        form.parent_id = initPid as number;
+      }
+    }
   }
 }, { immediate: true });
 
@@ -151,4 +165,3 @@ const handleSubmit = async () => {
   });
 };
 </script>
-

@@ -1,16 +1,19 @@
 <template>
-  <el-aside class="sidebar" :class="[`sidebar-theme-${currentTheme}`, { 'sidebar-collapsed': isCollapse }]">
+  <el-aside
+    class="sidebar"
+    :class="[`sidebar-theme-${currentTheme}`, { 'sidebar-collapsed': isCollapse }]"
+  >
     <el-scrollbar ref="scrollbarRef">
       <!-- 1. 头部徽标与主题切换 -->
       <SideNavHeader :is-collapse="isCollapse" />
-      
+
       <!-- 2. 操作按钮组 -->
-      <SideNavActions 
-        :is-collapse="isCollapse" 
+      <SideNavActions
+        :is-collapse="isCollapse"
         @add-device="showAddDeviceDialog"
         @add-group="() => showAddGroupDialog()"
       />
-      
+
       <!-- 3. 设备组树形菜单 -->
       <SideNavTree
         :tree-data="treeData"
@@ -23,7 +26,7 @@
         @edit-device="handleEditDevice"
         @delete-device="handleDeleteDevice"
       />
-      
+
       <!-- 4. 未分组设备 -->
       <SideNavUngrouped
         :ungrouped-devices="ungroupedDevices"
@@ -40,18 +43,19 @@
   </el-aside>
 
   <!-- 5. 对话框组件 -->
-  <AddDeviceDialog 
-    v-model:visible="addDeviceDialogVisible" 
+  <AddDeviceDialog
+    v-model:visible="addDeviceDialogVisible"
     :channel-id="editingChannelId"
     :initial-group-id="parentGroupIdForNewDevice"
     @success="handleDeviceAdded"
     @close="editingChannelId = null"
   />
-  
+
   <AddDeviceGroupDialog
     v-model:visible="addGroupDialogVisible"
     :group-id="editingGroupId"
     :parent-options="groupTreeForSelect"
+    :initial-parent-id="parentGroupIdForNewGroup"
     @success="handleGroupChanged"
     @close="editingGroupId = null"
   />
@@ -75,9 +79,9 @@ import { isCollapse } from "@/components/header/isCollapse";
 import menuRouter from "@/router/index";
 import { delView, visitedViews } from "@/store/tagsView";
 import { deleteChannel, getChannelList } from "@/api/channelApi";
-import { 
-  getDeviceGroupTree, 
-  deleteDeviceGroup, 
+import {
+  getDeviceGroupTree,
+  deleteDeviceGroup,
   batchDeviceOperation,
   type DeviceGroupTreeNode,
   type DeviceInfo
@@ -104,6 +108,7 @@ const addGroupDialogVisible = ref(false);
 const editingChannelId = ref<number | null>(null);
 const editingGroupId = ref<number | null>(null);
 const parentGroupIdForNewDevice = ref<number | null>(null);
+const parentGroupIdForNewGroup = ref<number | null>(null);
 
 const treeData = ref<TreeNode[]>([]);
 const ungroupedDevices = ref<DeviceInfo[]>([]);
@@ -165,13 +170,13 @@ const fetchDeviceGroupTree = async () => {
     const response = await getDeviceGroupTree();
     const newTreeData = transformToTreeData(response.groups || []);
     const newUngrouped = response.ungrouped || [];
-    
+
     // 准备要展开的keys
     const newExpandedKeys: string[] = [];
-    
+
     if (currentDeviceName.value) {
       currentNodeKey.value = `device-${currentDeviceName.value}`;
-      
+
       // 遍历寻找当前设备所在的分组并展开
       const findAndExpand = (nodes: TreeNode[]) => {
         for (const node of nodes) {
@@ -195,7 +200,7 @@ const fetchDeviceGroupTree = async () => {
         }
         return false;
       };
-      
+
       findAndExpand(newTreeData);
     }
 
@@ -203,14 +208,14 @@ const fetchDeviceGroupTree = async () => {
     expandedKeys.value = newExpandedKeys;
     ungroupedDevices.value = newUngrouped;
     treeData.value = newTreeData; // 最后更新 treeData，触发 SideNavTree 的监听
-    
+
     // 如果是未分组设备，展开未分组区域
     if (currentDeviceName.value) {
       const isUngrouped = newUngrouped.some(d => d.name === currentDeviceName.value);
       if (isUngrouped) {
         ungroupedExpanded.value = true;
       }
-      
+
       // 等待展开动画或渲染后滚动
       nextTick(() => {
         scrollToCurrentDevice();
@@ -234,9 +239,9 @@ const navigateToDevice = (deviceName: string, forceRefresh = false) => {
   currentNodeKey.value = `device-${deviceName}`;
   const path = `/device/${deviceName}`;
   localStorage.setItem("activeRoute", path);
-  
+
   if (forceRefresh) {
-    // For tabs, we actually probably don't want to ever force refresh 
+    // For tabs, we actually probably don't want to ever force refresh
     // using query params as it breaks keep-alive matching easily by path.
     // If needed, can use another mechanism. For now, just navigate.
   }
@@ -251,7 +256,7 @@ const showAddDeviceDialog = () => {
 
 const showAddGroupDialog = (parentId?: number) => {
   editingGroupId.value = null;
-  parentGroupIdForNewDevice.value = parentId || null;
+  parentGroupIdForNewGroup.value = parentId || null;
   addGroupDialogVisible.value = true;
 };
 
@@ -316,7 +321,7 @@ const handleDeleteDeviceByName = async (deviceName: string) => {
       currentDeviceName.value = '';
       currentNodeKey.value = '';
       localStorage.removeItem("activeRoute");
-      
+
       // Navigate to another view if available
       const latestView = visitedViews.value.slice(-1)[0];
       if (latestView) {
@@ -342,7 +347,7 @@ const handleDeviceAdded = async (deviceName: string, isEdit?: boolean, oldName?:
     component: () => import("@/views/Device.vue")
   });
   await fetchDeviceGroupTree();
-  
+
   // 自动展开新设备所在的分组
   let found = false;
   // 1. 检查分组设备
@@ -384,16 +389,16 @@ const handleDeviceAdded = async (deviceName: string, isEdit?: boolean, oldName?:
 
 const scrollToCurrentDevice = () => {
   if (!scrollbarRef.value) return;
-  
+
   // 查找当前选中的节点 DOM
   // element-plus 的 tree 节点 current 类名为 is-current
   // 但不仅仅是在 tree 中，未分组列表也可能有
-  
+
   const treeNode = document.querySelector('.el-tree-node.is-current');
   const ungroupedNode = document.querySelector('.ungrouped-item.is-active');
-  
+
   const target = treeNode || ungroupedNode || document.querySelector('.is-current');
-  
+
   if (target) {
     target.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
@@ -429,71 +434,71 @@ watch(() => router.currentRoute.value.params.deviceName, (name) => {
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
   box-shadow: var(--sb-shadow);
-  
+
   &.sidebar-collapsed {
     width: 64px !important;
     min-width: 64px;
-    
+
     /* 折叠时隐藏树形结构的文字和操作按钮，只显示图标 */
     :deep(.device-tree) {
       padding: 0 6px;
-      
+
       .el-tree-node__content {
         padding-left: 0 !important;
         padding-right: 0 !important;
         justify-content: center;
       }
-      
+
       .el-tree-node__expand-icon {
         display: none;
       }
-      
+
       .tree-node-content {
         justify-content: center;
         padding-left: 0;
       }
-      
+
       .node-label,
       .node-actions {
         display: none !important;
       }
-      
+
       .node-icon {
         margin-right: 0;
       }
     }
-    
+
     /* 折叠时隐藏未分组设备区域 */
     :deep(.ungrouped-section) {
       margin: 10px 6px;
       padding-top: 10px;
-      
+
       .ungrouped-header {
         justify-content: center;
         padding: 10px;
-        
+
         span {
           display: none;
         }
-        
+
         .el-icon {
           margin-right: 0;
         }
       }
-      
+
       .ungrouped-list {
         padding: 8px 0 0 0;
       }
-      
+
       .ungrouped-item {
         justify-content: center;
         padding: 10px;
-        
+
         span,
         .node-actions {
           display: none !important;
         }
-        
+
         .el-icon {
           margin-right: 0;
         }
