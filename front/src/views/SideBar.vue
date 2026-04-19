@@ -25,6 +25,7 @@
         @group-command="handleGroupCommand"
         @edit-device="handleEditDevice"
         @delete-device="handleDeleteDevice"
+        @copy-device="handleCopyDevice"
       />
 
       <!-- 4. 未分组设备 -->
@@ -38,6 +39,7 @@
         @edit-device="handleEditDeviceByName"
         @delete-device="handleDeleteDeviceByName"
         @group-command="handleUngroupedCommand"
+        @copy-device="handleCopyDeviceByName"
       />
     </el-scrollbar>
   </el-aside>
@@ -59,6 +61,17 @@
     @success="handleGroupChanged"
     @close="editingGroupId = null"
   />
+
+  <CopyDeviceDialog
+    v-model:visible="copyDeviceDialogVisible"
+    :channel-id="copyingChannelId || 0"
+    :device-name="copyingDeviceName"
+    :device-ip="copyingDeviceIp"
+    :device-port="copyingDevicePort"
+    :point-count="copyingPointCount"
+    @success="handleCopyDeviceSuccess"
+    @close="copyingChannelId = null"
+  />
 </template>
 
 <script lang="ts" setup>
@@ -73,6 +86,7 @@ import SideNavTree from "@/components/layout/SideNavTree.vue";
 import SideNavUngrouped from "@/components/layout/SideNavUngrouped.vue";
 import AddDeviceDialog from "@/components/device/AddDeviceDialog.vue";
 import AddDeviceGroupDialog from "@/components/device/AddDeviceGroupDialog.vue";
+import CopyDeviceDialog from "@/components/device/CopyDeviceDialog.vue";
 
 import { currentTheme } from "@/utils/theme";
 import { isCollapse } from "@/components/header/isCollapse";
@@ -109,6 +123,13 @@ const editingChannelId = ref<number | null>(null);
 const editingGroupId = ref<number | null>(null);
 const parentGroupIdForNewDevice = ref<number | null>(null);
 const parentGroupIdForNewGroup = ref<number | null>(null);
+
+const copyDeviceDialogVisible = ref(false);
+const copyingChannelId = ref<number | null>(null);
+const copyingDeviceName = ref<string>('');
+const copyingDeviceIp = ref<string>('');
+const copyingDevicePort = ref<number>(502);
+const copyingPointCount = ref<number>(0);
 
 const treeData = ref<TreeNode[]>([]);
 const ungroupedDevices = ref<DeviceInfo[]>([]);
@@ -337,6 +358,31 @@ const handleDeleteDeviceByName = async (deviceName: string) => {
 
     await fetchDeviceGroupTree();
   }
+};
+
+const handleCopyDevice = async (data: TreeNode) => {
+  await handleCopyDeviceByName(data.name);
+};
+
+const handleCopyDeviceByName = async (deviceName: string) => {
+  try {
+    const channelList = await getChannelList();
+    const channel = channelList.find(c => c.name === deviceName);
+    if (channel) {
+      copyingChannelId.value = channel.id;
+      copyingDeviceName.value = channel.name;
+      copyingDeviceIp.value = channel.ip || '0.0.0.0';
+      copyingDevicePort.value = channel.port || 502;
+      copyingPointCount.value = 0;
+      copyDeviceDialogVisible.value = true;
+    }
+  } catch (error) {
+    console.error('获取设备信息失败:', error);
+  }
+};
+
+const handleCopyDeviceSuccess = async () => {
+  await fetchDeviceGroupTree();
 };
 
 const handleDeviceAdded = async (deviceName: string, isEdit?: boolean, oldName?: string) => {

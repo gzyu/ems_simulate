@@ -184,3 +184,35 @@ export async function reloadDeviceConfig(channelId: number): Promise<{ device_na
         throw error;
     }
 }
+
+export interface CopyDeviceResult {
+    channel_id: number;
+    device_id: number;
+    name: string;
+    code: string;
+    ip: string;
+}
+
+export interface CopyDeviceResponse {
+    copied_count: number;
+    devices: CopyDeviceResult[];
+}
+
+export interface CopyDeviceRequest {
+    channel_id: number;
+    count: number;
+    prefix?: string;
+    suffix?: string;
+    ip_start_offset: number;
+    port_offset?: number;
+}
+
+export async function copyDevice(request: CopyDeviceRequest): Promise<CopyDeviceResponse> {
+    try {
+        const data = await requestApi('/channel/copy', 'post', request);
+        return data;
+    } catch (error) {
+        console.error('Error copying device:', error);
+        throw error;
+    }
+}

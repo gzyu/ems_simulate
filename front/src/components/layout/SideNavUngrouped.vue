@@ -33,6 +33,7 @@
         <span>{{ device.name }}</span>
         <div class="node-actions" v-if="!isCollapse" @click.stop>
           <el-button link size="small" :icon="Edit" @click="$emit('edit-device', device.name)" />
+          <el-button link size="small" :icon="DocumentCopy" @click="$emit('copy-device', device.name)" />
           <el-button link size="small" :icon="Delete" @click="$emit('delete-device', device.name)" />
         </div>
       </div>
@@ -41,7 +42,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ArrowRight, Cpu, Edit, Delete, MoreFilled, Plus, VideoPlay, VideoPause } from "@element-plus/icons-vue";
+import { ArrowRight, Cpu, Edit, Delete, MoreFilled, Plus, VideoPlay, VideoPause, DocumentCopy } from "@element-plus/icons-vue";
 
 
 defineProps<{
@@ -57,6 +58,7 @@ defineEmits<{
   (e: 'edit-device', name: string): void;
   (e: 'delete-device', name: string): void;
   (e: 'group-command', command: string): void;
+  (e: 'copy-device', name: string): void;
 }>();
 </script>
 

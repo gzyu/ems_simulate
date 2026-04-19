@@ -39,6 +39,7 @@
           </template>
           <template v-else>
             <el-button link size="small" :icon="Edit" @click="$emit('edit-device', data)" />
+            <el-button link size="small" :icon="DocumentCopy" @click="$emit('copy-device', data)" />
             <el-button link size="small" :icon="Delete" @click="$emit('delete-device', data)" />
           </template>
         </div>
@@ -50,9 +51,9 @@
 <script lang="ts" setup>
 import { onMounted, ref, watch, nextTick } from "vue";
 import { ElTree } from 'element-plus';
-import { 
-  Folder, Cpu, MoreFilled, Edit, Plus, FolderAdd, 
-  VideoPlay, VideoPause, Delete 
+import {
+  Folder, Cpu, MoreFilled, Edit, Plus, FolderAdd,
+  VideoPlay, VideoPause, Delete, DocumentCopy
 } from "@element-plus/icons-vue";
 
 const props = defineProps<{
@@ -68,6 +69,7 @@ defineEmits<{
   (e: 'group-command', command: string, data: any): void;
   (e: 'edit-device', data: any): void;
   (e: 'delete-device', data: any): void;
+  (e: 'copy-device', data: any): void;
 }>();
 
 const treeRef = ref<InstanceType<typeof ElTree>>();

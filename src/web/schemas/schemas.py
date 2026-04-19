@@ -126,6 +126,15 @@ class ChannelUpdateRequest(BaseModel):
 class CreateAndStartDeviceRequest(BaseModel):
     channel_id: int
 
+class CopyDeviceRequest(BaseModel):
+    """复制设备请求"""
+    channel_id: int = Field(..., description="源通道ID")
+    count: int = Field(2, ge=1, le=100, description="复制数量（1-100）")
+    prefix: Optional[str] = Field(None, description="设备名称前缀")
+    suffix: Optional[str] = Field(None, description="设备名称后缀")
+    ip_start_offset: int = Field(0, ge=0, description="IP起始偏移量（0表示不偏移）")
+    port_offset: int = Field(0, ge=0, description="端口偏移量（0表示不偏移）")
+
 class ManualReadRequest(BaseModel):
     device_name: str
     interval: Optional[int] = 0

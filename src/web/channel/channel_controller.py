@@ -25,7 +25,7 @@ from src.device.types.circuit_breaker import CircuitBreaker
 from src.enums.modbus_def import ProtocolType
 from src.web.schemas.schemas import (
     BaseResponse, ChannelCreateRequest, ChannelUpdateRequest,
-    CreateAndStartDeviceRequest
+    CreateAndStartDeviceRequest, CopyDeviceRequest
 )
 
 
@@ -622,6 +622,185 @@ async def _reload_device_instance(device_controller, channel_id: int, is_start: 
     device_controller.device_map[new_device.name] = new_device
     
     log.info(f"设备 {device_name} 实例已更新 (启动状态: {is_start})")
-    
+
     return new_device
+
+
+def _increment_ip(ip: str, offset: int) -> str:
+    """递增IP地址的最后一个段"""
+    if offset <= 0:
+        return ip
+    try:
+        parts = ip.split('.')
+        if len(parts) != 4:
+            return ip
+        last_octet = int(parts[3])
+        new_last_octet = last_octet + offset
+        if new_last_octet > 255:
+            new_last_octet = new_last_octet % 256
+        parts[3] = str(new_last_octet)
+        return '.'.join(parts)
+    except Exception:
+        return ip
+
+
+@channel_router.post("/copy", response_model=BaseResponse)
+async def copy_device(req: CopyDeviceRequest, request: Request):
+    """复制设备（包括点表）"""
+    try:
+        from src.data.service.device_service import DeviceService
+        from src.data.dao.point_dao import PointDao
+
+        source_channel = ChannelService.get_channel_by_id(req.channel_id)
+        if not source_channel:
+            return BaseResponse(code=404, message="源通道不存在")
+
+        source_device_id = source_channel.get("device_id")
+        source_device = DeviceService.get_device_by_id(source_device_id) if source_device_id else None
+        source_group_id = source_device.get("group_id") if source_device else None
+
+        source_points = PointDao.get_points_by_channel(req.channel_id)
+
+        source_ip = source_channel.get("ip", Config.DEFAULT_IP)
+        source_port = source_channel.get("port", Config.DEFAULT_PORT)
+
+        prefix = req.prefix or ""
+        suffix = req.suffix or ""
+
+        copied_channels = []
+
+        for i in range(1, req.count + 1):
+            ip_offset = req.ip_start_offset + i - 1
+            new_ip = _increment_ip(source_ip, ip_offset)
+
+            new_port = source_port + req.port_offset * i if req.port_offset > 0 else source_port
+
+            new_code = f"{prefix}{source_channel['code']}{suffix}{i}"
+            new_name = f"{prefix}{source_channel['name']}{suffix}{i}"
+
+            existing = ChannelService.get_channel_by_code(new_code)
+            if existing:
+                log.warning(f"通道编码 {new_code} 已存在，跳过")
+                continue
+
+            new_device_id = DeviceService.create_device(
+                code=new_code,
+                name=new_name,
+                device_type=0,
+                group_id=source_group_id,
+            )
+
+            if new_device_id <= 0:
+                log.error(f"创建设备记录失败: {new_code}")
+                continue
+
+            new_channel_id = ChannelService.create_channel(
+                code=new_code,
+                name=new_name,
+                device_id=new_device_id,
+                protocol_type=source_channel.get("protocol_type", 1),
+                conn_type=source_channel.get("conn_type", 2),
+                ip=new_ip,
+                port=new_port,
+                com_port=source_channel.get("com_port"),
+                baud_rate=source_channel.get("baud_rate", 9600),
+                data_bits=source_channel.get("data_bits", 8),
+                stop_bits=source_channel.get("stop_bits", 1),
+                parity=source_channel.get("parity", "N"),
+                rtu_addr=source_channel.get("rtu_addr", "1"),
+            )
+
+            if new_channel_id <= 0:
+                log.error(f"创建通道失败: {new_code}")
+                continue
+
+            point_suffix = f"{suffix}{i}"
+
+            for point in source_points:
+                point_copy = {
+                    "code": f"{prefix}{point['code']}{point_suffix}",
+                    "name": point["name"],
+                    "rtu_addr": point.get("rtu_addr", 1),
+                    "reg_addr": point.get("reg_addr", "0"),
+                    "func_code": point.get("func_code", 3),
+                    "decode_code": point.get("decode_code", "0x41"),
+                }
+
+                frame_type = point.get("frame_type", 0)
+                if frame_type in [0, 3]:
+                    point_copy["mul_coe"] = point.get("mul_coe", 1.0)
+                    point_copy["add_coe"] = point.get("add_coe", 0.0)
+                    point_copy["max_limit"] = point.get("max_limit")
+                    point_copy["min_limit"] = point.get("min_limit")
+                if frame_type in [1, 2]:
+                    point_copy["bit"] = point.get("bit")
+
+                try:
+                    PointDao.create_point(new_channel_id, frame_type, point_copy)
+                except Exception as e:
+                    log.error(f"复制测点失败: {point.get('code')} -> {point_copy['code']}: {e}")
+
+            try:
+                device_controller = request.app.state.device_controller
+
+                if new_code.upper().find("PCS") != -1:
+                    builder = GeneralDeviceBuilder(channel_id=new_channel_id, device=Pcs())
+                elif new_code.upper().find("BREAKER") != -1:
+                    builder = GeneralDeviceBuilder(channel_id=new_channel_id, device=CircuitBreaker())
+                else:
+                    builder = GeneralDeviceBuilder(channel_id=new_channel_id, device=GeneralDevice())
+
+                channel_protocol_type = ChannelService.get_protocol_type(source_channel)
+                conn_type = source_channel.get("conn_type", 1)
+
+                if conn_type in [0, 3]:
+                    builder.setDeviceSerialConfig(
+                        serial_port=source_channel.get("com_port", ""),
+                        baudrate=source_channel.get("baud_rate", 9600),
+                        databits=source_channel.get("data_bits", 8),
+                        stopbits=source_channel.get("stop_bits", 1),
+                        parity=source_channel.get("parity", "E")
+                    )
+                elif channel_protocol_type in [ProtocolType.Iec104Client, ProtocolType.ModbusTcpClient,
+                                               ProtocolType.Dlt645Client, ProtocolType.Iec61850Client]:
+                    builder.setDeviceNetConfig(port=new_port, ip=new_ip)
+                else:
+                    builder.setDeviceNetConfig(port=new_port, ip=Config.DEFAULT_IP)
+
+                new_device = builder.makeGeneralDevice(
+                    device_id=new_channel_id,
+                    device_name=new_name,
+                    protocol_type=channel_protocol_type,
+                    is_start=False,
+                )
+                new_device.name = new_name
+
+                device_controller.device_list.append(new_device)
+                device_controller.device_map[new_device.name] = new_device
+
+                log.info(f"复制设备 {new_name} (ID: {new_channel_id}) 已在内存中创建")
+
+            except Exception as e:
+                log.error(f"内存同步复制设备失败: {e}")
+
+            copied_channels.append({
+                "channel_id": new_channel_id,
+                "device_id": new_device_id,
+                "name": new_name,
+                "code": new_code,
+                "ip": new_ip,
+                "port": new_port,
+            })
+
+        return BaseResponse(
+            message=f"成功复制 {len(copied_channels)} 个设备",
+            data={
+                "copied_count": len(copied_channels),
+                "devices": copied_channels,
+            }
+        )
+
+    except Exception as e:
+        log.error(f"复制设备失败: {e}")
+        return BaseResponse(code=500, message=f"复制设备失败: {e}")
 

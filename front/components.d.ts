@@ -13,6 +13,7 @@ declare module 'vue' {
     AddPointDialog: typeof import('./src/components/device/AddPointDialog.vue')['default']
     AddSlaveDialog: typeof import('./src/components/device/AddSlaveDialog.vue')['default']
     AppHeader: typeof import('./src/components/header/AppHeader.vue')['default']
+    CopyDeviceDialog: typeof import('./src/components/device/CopyDeviceDialog.vue')['default']
     DeviceFormBasic: typeof import('./src/components/device/DeviceFormBasic.vue')['default']
     DeviceFormConfig: typeof import('./src/components/device/DeviceFormConfig.vue')['default']
     DeviceFormPoints: typeof import('./src/components/device/DeviceFormPoints.vue')['default']
