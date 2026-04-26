@@ -239,7 +239,9 @@ class Device:
 
         Args:
             discovered_points: 发现的测点列表，
-                每个元素为 {"address": int, "frame_type": int, "ref": str}
+                每个元素为 {"address": str, "frame_type": int, "ref": str, "code": str}
+                address 为完整 IEC 61850 引用路径，如 "MEAS/M0GGIO1.AnIn1.mag.f"
+                code 为短编码，简单地址模式为原始地址(如 "1")，ICD 模式为 "LN.DO"(如 "M0GGIO1.AnIn1")
         """
         frame_type_names = {0: "遥测", 1: "遥信", 2: "遥控", 3: "遥调"}
         added_count = 0
@@ -256,9 +258,10 @@ class Device:
                 continue
 
             # 根据 frame_type 创建对应的 BasePoint 对象
-            auto_code = str(addr)
+            # 优先使用 code 字段（短编码），否则回退到 address
+            auto_code = dp.get("code", str(addr))
             ft_label = frame_type_names.get(ft, str(ft))
-            auto_name = str(addr)
+            auto_name = dp.get("code", str(addr))
 
             point = None
             if ft == 0:  # 遥测

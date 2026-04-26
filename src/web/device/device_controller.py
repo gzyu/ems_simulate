@@ -161,6 +161,8 @@ async def start_device(req: DeviceStartRequest, request: Request):
         device = get_device(req.device_name, request)
         success = await device.start()
         if success:
+            # IEC 61850 客户端等协议的连接在后台线程执行，start() 立即返回 True
+            # 实际连接状态需通过轮询 get_device_info 获取
             return BaseResponse(message="设备启动成功!", data=True)
         else:
             return BaseResponse(code=500, message="设备启动失败! (连接被拒绝或超时)", data=False)

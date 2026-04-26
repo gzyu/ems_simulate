@@ -14,13 +14,28 @@ export const instance = axios.create({
     }
 });
 
+// 错误消息去重：避免后端阻塞时多个请求同时超时导致不停弹窗
+let lastErrorMessage = '';
+let lastErrorTime = 0;
+const ERROR_DEBOUNCE_MS = 3000; // 3秒内相同错误消息只弹一次
+
+function showErrorOnce(message: string) {
+    const now = Date.now();
+    if (message === lastErrorMessage && now - lastErrorTime < ERROR_DEBOUNCE_MS) {
+        return; // 3秒内相同的错误消息不重复弹出
+    }
+    lastErrorMessage = message;
+    lastErrorTime = now;
+    ElMessage.error(message);
+}
+
 // 添加响应拦截器
 instance.interceptors.response.use(
     (response) => {
         // 检查业务响应码
         if (response.data && response.data.code !== 200) {
             const errorMsg = response.data.message || '请求失败';
-            ElMessage.error(errorMsg);
+            showErrorOnce(errorMsg);
             return Promise.reject(new Error(errorMsg));
         }
         return response;
@@ -33,7 +48,7 @@ instance.interceptors.response.use(
         } else if (error instanceof Error) {
             message = error.message;
         }
-        ElMessage.error(message);
+        showErrorOnce(message);
         return Promise.reject(error);
     }
 );

@@ -236,11 +236,15 @@ async def import_points(
                 device_controller = request.app.state.device_controller
                 device = device_controller.get_device_by_id(channel_id)
                 if device:
-                    # 重新从数据库加载点表
-                    # 注意：importDataPointFromChannel 会清空现有 SimulationPointList 并重新初始化
-                    # 我们需要确保 protocol_type 正确。Device 对象里应该存了。
-                    device.importDataPointFromChannel(channel_id, device.protocol_type)
-                    log.info(f"已同步更新设备 {device.name} (ID: {channel_id}) 的内存点表")
+                    # IEC 61850 服务端的模型在 IedServer_create 时就固定了，
+                    # 后续 add_points 无法生效，必须重建设备实例
+                    if device.protocol_type == ProtocolType.Iec61850Server:
+                        was_running = device.is_protocol_running()
+                        await _reload_device_instance(device_controller, channel_id, is_start=was_running)
+                        log.info(f"IEC 61850 服务端设备 {device.name} (ID: {channel_id}) 已重建以加载新点表")
+                    else:
+                        device.importDataPointFromChannel(channel_id, device.protocol_type)
+                        log.info(f"已同步更新设备 {device.name} (ID: {channel_id}) 的内存点表")
                 else:
                     log.warning(f"导入点表后未找到内存设备 (ID: {channel_id})，需要手动加载或重启")
             except Exception as e:
@@ -306,8 +310,15 @@ async def import_icd(
                 device_controller = request.app.state.device_controller
                 device = device_controller.get_device_by_id(channel_id)
                 if device:
-                    device.importDataPointFromChannel(channel_id, device.protocol_type)
-                    log.info(f"已同步更新设备 {device.name} (ID: {channel_id}) 的内存点表")
+                    # IEC 61850 服务端的模型在 IedServer_create 时就固定了，
+                    # 后续 add_points 无法生效，必须重建设备实例
+                    if device.protocol_type == ProtocolType.Iec61850Server:
+                        was_running = device.is_protocol_running()
+                        await _reload_device_instance(device_controller, channel_id, is_start=was_running)
+                        log.info(f"IEC 61850 服务端设备 {device.name} (ID: {channel_id}) 已重建以加载新点表")
+                    else:
+                        device.importDataPointFromChannel(channel_id, device.protocol_type)
+                        log.info(f"已同步更新设备 {device.name} (ID: {channel_id}) 的内存点表")
                 else:
                     log.warning(f"导入ICD后未找到内存设备 (ID: {channel_id})，需要手动加载或重启")
             except Exception as e:

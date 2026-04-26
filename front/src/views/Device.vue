@@ -164,12 +164,6 @@ const toggleDevice = async () => {
         deviceStatus.value = true;
         deviceStatusStr.value = "运行中";
         ElMessage.success("启动设备成功");
-
-        // 当设备启动成功（例如 IEC 61850 动态发现测点后），重新拉取此设备的测点表
-        if (communicationType.value && String(communicationType.value)=="Iec61850Client") {
-          slaveRef.value.reloadDatas();
-          ElMessage.success('已自动刷新测点表格');
-        }
       } else {
         ElMessage.error("启动设备失败");
       }
@@ -193,6 +187,11 @@ const fetchDeviceInfo = async () => {
     const serverStatus = info.get("server_status");
     deviceStatus.value = serverStatus;
     deviceStatusStr.value = serverStatus === true ? "运行中" : "停止";
+    // 初始化防抖状态，避免初始加载时误弹通知
+    lastNotifyServerStatus = serverStatus;
+    stableServerStatus = serverStatus;
+    prevServerStatus = serverStatus;
+    statusUnstableCount = STATUS_STABLE_THRESHOLD;
     const simuStatus = info.get("simulation_status");
     simulationStatus.value = simuStatus;
     simulationStatusStr.value = simuStatus === true ? "运行中" : "停止";
@@ -224,22 +223,52 @@ const startFunction = async () => {
 let statusPollTimer: number | null = null;
 const STATUS_POLL_INTERVAL = 1000; // 1秒轮询一次
 
+// 连接状态防抖：避免因连接状态抖动（如客户端重连过程中反复连接成功又断开）导致不停弹窗
+let lastNotifyServerStatus: boolean | null = null;  // 上一次弹窗通知时的连接状态
+let stableServerStatus: boolean | null = null;       // 当前稳定的连接状态
+let statusUnstableCount = 0;                          // 状态不稳定计数（连续变化的次数）
+const STATUS_STABLE_THRESHOLD = 3;                    // 连续3次状态一致才认为状态稳定
+let prevServerStatus: boolean | null = null;          // 上一次轮询的连接状态（用于检测即时变化，如 IEC 61850 测点刷新）
+
 // 仅获取状态（不更新其他信息，减少开销）
 const fetchDeviceStatus = async () => {
   try {
     const info = await getDeviceInfo(routeName.value);
     const serverStatus = info.get("server_status");
-    // 只有状态变化时才更新
-    if (deviceStatus.value !== serverStatus) {
-      deviceStatus.value = serverStatus;
-      deviceStatusStr.value = serverStatus === true ? "运行中" : "停止";
-      // 状态变化提示
+
+    // 更新显示状态（不受防抖影响，UI 始终反映最新值）
+    deviceStatus.value = serverStatus;
+    deviceStatusStr.value = serverStatus === true ? "运行中" : "停止";
+
+    // IEC 61850 客户端：检测到连接从 false 变为 true 时立即刷新测点表格
+    // （不需要等防抖，因为测点发现完成后数据立即可用）
+    if (serverStatus === true && prevServerStatus === false) {
+      if (communicationType.value && String(communicationType.value) === "Iec61850Client") {
+        slaveRef.value?.reloadDatas();
+      }
+    }
+    prevServerStatus = serverStatus;
+
+    // 防抖逻辑：只有状态稳定后才弹出通知
+    if (serverStatus !== stableServerStatus) {
+      // 状态发生变化，开始计数
+      statusUnstableCount = 1;
+      stableServerStatus = serverStatus;
+    } else {
+      // 状态未变化，累加计数
+      statusUnstableCount++;
+    }
+
+    // 状态已稳定（连续 N 次一致），且与上次通知状态不同时才弹窗
+    if (statusUnstableCount >= STATUS_STABLE_THRESHOLD && lastNotifyServerStatus !== serverStatus) {
+      lastNotifyServerStatus = serverStatus;
       if (serverStatus === true) {
         ElMessage.success(`设备 ${routeName.value} 已连接`);
       } else {
         ElMessage.warning(`设备 ${routeName.value} 连接已断开`);
       }
     }
+
     const simuStatus = info.get("simulation_status");
     if (simulationStatus.value !== simuStatus) {
       simulationStatus.value = simuStatus;
@@ -292,6 +321,11 @@ watch(() => route.fullPath, async () => {
       routeName.value = newName;
       // 重置数据
       deviceInfo.value = new Map<string, any>();
+      // 重置连接状态防抖
+      lastNotifyServerStatus = null;
+      stableServerStatus = null;
+      prevServerStatus = null;
+      statusUnstableCount = 0;
     }
     await fetchDeviceInfo();
   }

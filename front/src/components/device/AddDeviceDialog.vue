@@ -26,6 +26,7 @@
       <DeviceFormPoints 
         ref="uploadCompRef" 
         :protocol-type="form.protocol_type"
+        :conn-type="form.conn_type"
         @file-change="(f) => selectedFile = f" 
         @icd-file-change="(f) => selectedIcdFile = f" 
       />

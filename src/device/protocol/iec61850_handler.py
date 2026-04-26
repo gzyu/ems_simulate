@@ -152,13 +152,16 @@ class IEC61850ClientHandler(ClientHandler):
         self._client = None
         self._log = log
         self._on_points_discovered = None  # 测点发现回调
+        self._connecting = False  # 是否正在连接中（防止重复启动）
 
     def set_on_points_discovered(self, callback):
         """设置测点发现回调
 
         Args:
             callback: 回调函数，签名为 callback(discovered_points: List[Dict])
-                      每个 dict 包含 {"address": int, "frame_type": int, "ref": str}
+                      每个 dict 包含 {"address": str, "frame_type": int, "ref": str, "code": str}
+                      address 为完整 IEC 61850 引用路径，如 "MEAS/M0GGIO1.AnIn1.mag.f"
+                      code 为短编码，简单地址模式为原始地址(如 "1")，ICD 模式为 "LN.DO"(如 "M0GGIO1.AnIn1")
         """
         self._on_points_discovered = callback
 
@@ -188,40 +191,67 @@ class IEC61850ClientHandler(ClientHandler):
         )
 
     async def start(self) -> bool:
-        """启动客户端（连接服务器）"""
-        return await self.connect()
+        """启动客户端（在后台线程中连接服务器，立即返回）
+
+        IEC 61850 的 IedConnection_connect 是 C 扩展同步阻塞调用，会持有 GIL，
+        导致 run_in_executor 也无法避免阻塞事件循环。
+        因此使用 daemon 线程在后台执行连接，start() 立即返回，
+        前端通过轮询 get_device_info 获取最终连接状态。
+        """
+        if not self._client:
+            return False
+
+        # 防止重复启动连接
+        if self._connecting:
+            return True  # 已在连接中，视为成功受理
+
+        self._connecting = True
+        import threading
+        thread = threading.Thread(target=self._connect_background, daemon=True)
+        thread.start()
+        return True  # 立即返回，表示连接任务已受理
 
     async def stop(self) -> bool:
         """停止客户端（断开连接）"""
         self.disconnect()
         return True
 
-    async def connect(self) -> bool:
-        """连接到 IEC 61850 服务器"""
-        try:
-            if self._client:
-                is_connected = await self._client.connect()
-                self._is_running = is_connected
+    def connect(self) -> bool:
+        """同步连接方法（供外部直接调用）
 
-                # 连接成功后，通知上层发现的测点
-                if is_connected and self._on_points_discovered:
-                    discovered = self._client.get_discovered_points()
-                    if discovered:
-                        try:
-                            self._on_points_discovered(discovered)
-                        except Exception as e:
-                            if self._log:
-                                self._log.error(f"处理发现的测点时出错: {e}")
-
-                return is_connected
+        注意：此方法会阻塞调用线程，不建议在事件循环中直接调用。
+        通常应使用 async start() 方法（后台线程执行连接）。
+        """
+        if not self._client:
             return False
+        is_connected = self._client.connect()
+        self._is_running = is_connected
+
+        # 连接成功后，通知上层发现的测点
+        if is_connected and self._on_points_discovered:
+            discovered = self._client.get_discovered_points()
+            if discovered:
+                try:
+                    self._on_points_discovered(discovered)
+                except Exception as e:
+                    if self._log:
+                        self._log.error(f"处理发现的测点时出错: {e}")
+        return is_connected
+
+    def _connect_background(self):
+        """在后台线程中执行连接（避免 IedConnection_connect 持有 GIL 阻塞事件循环）"""
+        try:
+            self.connect()
         except Exception as e:
             if self._log:
                 self._log.error(f"连接 IEC 61850 服务器失败: {e}")
-            return False
+            self._is_running = False
+        finally:
+            self._connecting = False
 
     def disconnect(self) -> None:
         """断开连接"""
+        self._connecting = False
         if self._client:
             self._client.disconnect()
             self._is_running = False
@@ -229,6 +259,8 @@ class IEC61850ClientHandler(ClientHandler):
     @property
     def is_running(self) -> bool:
         """检测客户端的真实连接状态"""
+        if self._connecting:
+            return False  # 连接中，尚未成功
         if not self._is_running:
             return False
         if not self._client:

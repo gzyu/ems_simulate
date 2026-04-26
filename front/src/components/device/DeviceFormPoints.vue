@@ -1,9 +1,9 @@
 <template>
   <div class="device-form-points">
-    <!-- IEC 61850 协议: ICD 文件导入 -->
-    <template v-if="protocolType === 4">
+    <!-- IEC 61850 服务端: ICD 文件导入 -->
+    <template v-if="protocolType === 4 && connType === 2">
       <el-divider content-position="left">ICD 文件导入</el-divider>
-      
+
       <el-form-item label="ICD文件">
         <el-upload
           ref="icdUploadRef"
@@ -24,11 +24,22 @@
         </el-upload>
       </el-form-item>
     </template>
-    
+
+    <!-- IEC 61850 客户端提示 -->
+    <template v-else-if="protocolType === 4 && connType === 1">
+      <el-alert
+        title="IEC61850 客户端将从服务端动态发现数据点，无需导入 ICD 文件"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-top: 16px"
+      />
+    </template>
+
     <!-- 其他协议: Excel 点表导入 -->
     <template v-else>
       <el-divider content-position="left">点表导入</el-divider>
-      
+
       <el-form-item label="测点表格">
         <el-upload
           ref="uploadRef"
@@ -53,28 +64,29 @@
 </template>
 
 <script lang="ts" setup>
-import { ref } from 'vue';
+import { ref } from "vue";
 import { Upload } from "@element-plus/icons-vue";
 
 const props = defineProps<{
   protocolType?: number;
+  connType?: number;
 }>();
 
 const uploadRef = ref();
 const icdUploadRef = ref();
 
 const emit = defineEmits<{
-  (e: 'file-change', file: any): void;
-  (e: 'icd-file-change', file: any): void;
+  (e: "file-change", file: any): void;
+  (e: "icd-file-change", file: any): void;
 }>();
 
 const handleFileRequest = (options: any) => {
-  emit('file-change', options.file);
+  emit("file-change", options.file);
   return Promise.resolve();
 };
 
 const handleIcdFileRequest = (options: any) => {
-  emit('icd-file-change', options.file);
+  emit("icd-file-change", options.file);
   return Promise.resolve();
 };
 
