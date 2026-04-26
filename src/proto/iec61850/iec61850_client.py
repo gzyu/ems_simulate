@@ -10,6 +10,10 @@ IEC 61850 MMS 客户端封装
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 from .log import log
+from .iec61850_defs import (
+    YC_LN_CLASSES, YX_LN_CLASSES, YK_LN_CLASSES, YT_LN_CLASSES,
+    ALL_LN_CLASSES, SKIP_SYSTEM_DOS, SIGNAL_DOS,
+)
 
 try:
     from pyiec61850 import pyiec61850 as iec61850
@@ -314,72 +318,6 @@ class IEC61850Client:
         iec61850.LinkedList_destroy(linked_list)
         return items
 
-    # IEC 61850 LN class 分类表 (按 lnClass 名称)
-    _YC_LN_CLASSES = frozenset({
-        # 测量类 (Measurement)
-        "MMXU", "MMTR", "MSQI", "MSTU", "MVGC",
-        "MHAN", "MDIF", "MFLK", "MSEQ", "MFUL",
-        "MHAI", "MHAV", "MHI", "MPMG", "MSQ",
-        "MSTA", "MENV", "MLLN",
-    })
-    _YX_LN_CLASSES = frozenset({
-        # 通用 I/O
-        "GGIO",
-        # 保护类 (Protection)
-        "PTRC", "PSCH", "PTOC", "PDIS", "PTTR", "PTEF",
-        "PTUV", "PTOV", "PPRF", "PUPF", "PVOC", "POPF",
-        "PTOF", "PHAR", "PDIF", "PDIR", "PDOP", "PPAM",
-        "PQUM", "PSDE", "PTUC", "PFRC", "PARC", "PFRQ",
-        "PMSS", "PMHI", "PMHO", "PNVI", "PPVE", "PSLF",
-        "PSPV", "PTAF", "PUMV", "PZOM", "PAFD",
-        # 断路器 / 开关
-        "XCBR", "XSWI",
-        # 逻辑 / 同期
-        "LGOS", "LPOW", "LSYN", "LTMS",
-        # 故障录波 / 扰动记录
-        "RBRF", "RDRE", "RADF", "RATV",
-        "RBDR", "RDIR", "RDST", "RESV", "RFSQ",
-        "RINC", "RITR", "RLSB", "RPTR", "RRST",
-        "RSRS", "RTRO", "RTRV",
-        # 互感器
-        "TCTR", "TVTR", "TANG",
-        # 告警
-        "CALH",
-        # 其他
-        "SAR",
-    })
-    _YK_LN_CLASSES = frozenset({
-        "CSWI", "CILO", "CCGR", "CPOW", "CSLS",
-    })
-    _YT_LN_CLASSES = frozenset({
-        "APC", "DPC", "SPC", "VYY", "ZCEC", "ZCVL",
-        "ZGNN", "ZIXL", "ZRCE", "ZRCT", "ZSCD", "ZSEQ",
-    })
-    _ALL_LN_CLASSES = _YC_LN_CLASSES | _YX_LN_CLASSES | _YK_LN_CLASSES | _YT_LN_CLASSES
-
-    # 系统 DO 名称 - 跳过 (IEC 61850 标准中每个 LN 都有的状态/描述信息,
-    # CDC 类型为 ENC(枚举), stVal 是整型而非布尔, 无法用 readBooleanValue 读取)
-    _SKIP_SYSTEM_DOS = frozenset({
-        "Mod",      # 模式 (ENC)
-        "Beh",      # 行为 (ENC)
-        "Health",   # 健康 (ENC)
-        "NamPlt",   # 铭牌 (LPL)
-    })
-
-    # 信号 DO 名称 - 可映射为遥信 (CDC 类型为 ACT/SPS, stVal 是布尔值)
-    _SIGNAL_DOS = frozenset({
-        "Op",       # 保护动作 (ACT)
-        "OpDs",     # 动作方向 (ACD)
-        "Str",      # 启动 (ACT)
-        "Tr",       # 跳闸 (ACT)
-        "TrBlk",    # 闭锁 (SPS)
-        "OpCnt",    # 动作计数 (INC)
-        "Aut",      # 自动 (SPS)
-        "AutRs",    # 自动复位 (SPS)
-        "Es",       # 紧急 (SPS)
-        "Gn",       # 通用 (SPS)
-    })
-
     def _extract_ln_class(self, ln_name: str) -> Optional[str]:
         """从可能带前缀的逻辑节点名中提取 lnClass
 
@@ -389,12 +327,12 @@ class IEC61850Client:
         """
         alpha = ''.join(c for c in ln_name if c.isalpha())
         # 直接匹配
-        if alpha in self._ALL_LN_CLASSES:
+        if alpha in ALL_LN_CLASSES:
             return alpha
         # 从后往前尝试匹配, 去除前缀部分
         for i in range(1, len(alpha)):
             suffix = alpha[i:]
-            if suffix in self._ALL_LN_CLASSES:
+            if suffix in ALL_LN_CLASSES:
                 return suffix
         return None
 
@@ -424,23 +362,23 @@ class IEC61850Client:
             return None
 
         # 3. 跳过 ENC 类型系统 DO (CDC 类型为枚举, 不可用 readBooleanValue 读取)
-        if do_name in self._SKIP_SYSTEM_DOS:
+        if do_name in SKIP_SYSTEM_DOS:
             return None
 
         # 4. 信号 DO (CDC 类型为 ACT/SPS, stVal 是布尔值)
-        if do_name in self._SIGNAL_DOS:
+        if do_name in SIGNAL_DOS:
             return 1  # 遥信
 
         # 4. LN class 推断 (支持带前缀的 LN 名)
         ln_class = self._extract_ln_class(ln_name)
         if ln_class:
-            if ln_class in self._YC_LN_CLASSES:
+            if ln_class in YC_LN_CLASSES:
                 return 0  # 遥测
-            elif ln_class in self._YX_LN_CLASSES:
+            elif ln_class in YX_LN_CLASSES:
                 return 1  # 遥信
-            elif ln_class in self._YK_LN_CLASSES:
+            elif ln_class in YK_LN_CLASSES:
                 return 2  # 遥控
-            elif ln_class in self._YT_LN_CLASSES:
+            elif ln_class in YT_LN_CLASSES:
                 return 3  # 遥调
 
         # 5. DO 名称模式推断 (基于 IEC 61850 CDC 命名约定)
