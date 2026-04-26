@@ -76,6 +76,26 @@ _DA_PATH_TO_FRAME_TYPE = {
     "setVal": 3,      # 遥调
 }
 
+# DA 第一层名称 -> (完整 DA 路径, frame_type) 映射
+# 用于从服务器模型发现 DA 结构时，根据 getDataDirectory 返回的 DA 名称
+# 推断测点类型和完整 DA 路径，避免猜测导致的测点遗漏
+_DA_PATTERNS = {
+    # 遥测 (YC) - 测量值类 DA
+    "mag": ("mag.f", 0),          # MV/SAV CDC: 浮点测量值
+    "cVal": ("cVal.mag.f", 0),    # CMV CDC: 复数测量值
+    "instMag": ("instMag.f", 0),  # SAV CDC: 瞬时测量值
+    "mxVal": ("mxVal.f", 0),      # 某些实现的测量值
+    "fCVal": ("fCVal.mag.f", 0),  # 复数浮点测量值
+    # 遥信 (YX) - 状态值类 DA
+    "stVal": ("stVal", 1),        # SPS/ACT/ACD/SEC CDC: 状态值
+    # 遥控 (YK) - 控制值类 DA
+    "ctlVal": ("ctlVal", 2),      # SPC/DPC CDC: 控制值
+    "Oper": ("Oper.ctlVal", 2),   # SPC/DPC CDC: 安全操作控制
+    # 遥调 (YT) - 设定值类 DA
+    "setVal": ("setVal", 3),      # APC/BSC/ISC CDC: 设定值
+    "wVal": ("wVal.f", 3),        # 某些实现的设定值
+}
+
 
 class IEC61850Client:
     """IEC 61850 MMS 客户端
@@ -309,11 +329,29 @@ class IEC61850Client:
         return False
 
     def _get_list_from_linked_list(self, linked_list) -> List[str]:
-        """从 LinkedList 中提取字符串列表"""
+        """从 LinkedList 中提取字符串列表
+
+        LinkedList 结构: linked_list 本身是头节点, LinkedList_getNext 返回下一个节点。
+        之前的实现从 getNext 开始遍历, 导致遗漏了链表的第一个元素。
+        正确做法: 先读取头节点数据, 再遍历后续节点。
+        """
+        if linked_list is None:
+            return []
         items = []
+        # 先读取头节点的数据
+        try:
+            head_data = iec61850.toCharP(linked_list.data)
+            if head_data:
+                items.append(head_data)
+        except Exception:
+            pass
+        # 再遍历后续节点
         item = iec61850.LinkedList_getNext(linked_list)
         while item:
-            items.append(iec61850.toCharP(item.data))
+            try:
+                items.append(iec61850.toCharP(item.data))
+            except Exception:
+                pass
             item = iec61850.LinkedList_getNext(item)
         iec61850.LinkedList_destroy(linked_list)
         return items
@@ -411,6 +449,42 @@ class IEC61850Client:
             return "ctlVal"
         return ""
 
+    def _discover_da_paths(self, do_ref: str) -> List[Tuple[str, int]]:
+        """通过查询服务器模型发现 DO 下的 DA 路径
+
+        使用 IedConnection_getDataDirectory 获取 DO 的直接子 DA 列表,
+        然后根据 DA 名称匹配 _DA_PATTERNS, 确定正确的 DA 路径和测点类型.
+        这比 _infer_da_path 更可靠, 因为它是基于服务端实际数据模型,
+        而不是猜测。例如 GGIO.AnIn1 的实际 DA 是 mag (遥测),
+        而不是 _infer_da_path 基于 GGIO∈YX 猜测的 stVal.
+
+        Args:
+            do_ref: 数据对象的完整 MMS 引用 (如 "EMSGenericLD/MMXU1.TotW")
+
+        Returns:
+            (da_path, frame_type) 元组列表, 空列表表示发现失败
+        """
+        try:
+            result = iec61850.IedConnection_getDataDirectory(self._connection, do_ref)
+            da_list = result[0] if isinstance(result, (list, tuple)) else result
+            error = result[1] if isinstance(result, (list, tuple)) else 0
+
+            if error != iec61850.IED_ERROR_OK or da_list is None:
+                return []
+
+            das = self._get_list_from_linked_list(da_list)
+
+            found = []
+            for da_name in das:
+                if da_name in _DA_PATTERNS:
+                    da_path, frame_type = _DA_PATTERNS[da_name]
+                    found.append((da_path, frame_type))
+
+            return found
+        except Exception as e:
+            log.debug(f"查询 DA 目录失败: {do_ref}, 错误: {e}")
+            return []
+
     def _extract_code_from_address(self, address: str) -> str:
         """从 address 中提取短编码
 
@@ -441,7 +515,7 @@ class IEC61850Client:
 
         Returns:
             发现的测点列表，每个元素为 {"address": str, "frame_type": int, "ref": str, "code": str}
-            address 统一使用 "{ld_inst}/{ln_name}.{do_name}.{da_path}" 格式
+            address 使用 MMS 引用格式 (包含 model_name 前缀)，如 "EMSGenericLD/MMXU1.MV_1.mag.f"
             code 为短编码: 简单地址模式为原始地址(如 "1")，ICD 模式为 "LN.DO"(如 "M0GGIO1.AnIn1")
         """
         if not self._connection or not self._is_connected:
@@ -476,14 +550,6 @@ class IEC61850Client:
             lns = self._get_list_from_linked_list(ln_list)
             log.info(f"逻辑设备 {ld} 下发现逻辑节点: {lns}")
 
-            # 从 LD 引用中提取 ld_inst
-            # LD 引用格式: "{model_name}{ld_inst}"，需要去掉 model_name 前缀
-            ld_inst = ld
-            if ld.startswith(self.model_name):
-                ld_inst = ld[len(self.model_name):]
-            if not ld_inst:
-                ld_inst = ld  # 回退
-            
             for ln in lns:
                 # 跳过系统逻辑节点
                 if ln == "LLN0" or ln == "LPHD0":
@@ -502,54 +568,87 @@ class IEC61850Client:
                 
                 dos = self._get_list_from_linked_list(do_list)
                 log.info(f"逻辑节点 {ln_ref} 下发现数据对象: {dos}")
+                
+                if not dos:
+                    log.warning(f"逻辑节点 {ln_ref} 下没有发现数据对象 (DO 列表为空)")
+                    continue
+                    
                 for do in dos:
                     full_do_ref = f"{ln_ref}.{do}"
                     
                     try:
-                        # 推断 frame_type
-                        frame_type = self._infer_frame_type_from_do(ln, do)
-                        if frame_type is None:
-                            log.debug(f"跳过数据对象 {full_do_ref}: 系统/状态DO, 不映射为测点")
-                            continue
-
-                        # 确定 DA 路径
+                        # 简单地址模式: DO 名带前缀 (MV_, SPS_, SPC_, APC_)
+                        # 前缀已经明确了测点类型和 DA 路径, 无需查询服务端
                         if do.startswith("MV_"):
-                            # 简单地址模式: MV_ 前缀
                             addr = do[3:]
                             da_path = "mag.f"
+                            frame_type = 0
                             ref = f"{full_do_ref}.{da_path}"
-                            # 构造统一格式的 address
-                            address = f"{ld_inst}/{ln}.{do}.{da_path}"
-                            code = addr  # 简单地址，如 "1"
+                            address = f"{ld}/{ln}.{do}.{da_path}"
+                            code = addr
+                            self._point_refs[(address, frame_type)] = ref
+                            discovered_points.append({"address": address, "frame_type": frame_type, "ref": ref, "code": code})
+                            log.info(f"映射测点: ({address}, {frame_type}) -> {ref}")
                         elif do.startswith("SPS_"):
                             addr = do[4:]
                             da_path = "stVal"
+                            frame_type = 1
                             ref = f"{full_do_ref}.{da_path}"
-                            address = f"{ld_inst}/{ln}.{do}.{da_path}"
+                            address = f"{ld}/{ln}.{do}.{da_path}"
                             code = addr
+                            self._point_refs[(address, frame_type)] = ref
+                            discovered_points.append({"address": address, "frame_type": frame_type, "ref": ref, "code": code})
+                            log.info(f"映射测点: ({address}, {frame_type}) -> {ref}")
                         elif do.startswith("SPC_"):
                             addr = do[4:]
                             da_path = "ctlVal"
+                            frame_type = 2
                             ref = f"{full_do_ref}.{da_path}"
-                            address = f"{ld_inst}/{ln}.{do}.{da_path}"
+                            address = f"{ld}/{ln}.{do}.{da_path}"
                             code = addr
+                            self._point_refs[(address, frame_type)] = ref
+                            discovered_points.append({"address": address, "frame_type": frame_type, "ref": ref, "code": code})
+                            log.info(f"映射测点: ({address}, {frame_type}) -> {ref}")
                         elif do.startswith("APC_"):
                             addr = do[4:]
                             da_path = "ctlVal"
+                            frame_type = 3
                             ref = f"{full_do_ref}.{da_path}"
-                            address = f"{ld_inst}/{ln}.{do}.{da_path}"
+                            address = f"{ld}/{ln}.{do}.{da_path}"
                             code = addr
+                            self._point_refs[(address, frame_type)] = ref
+                            discovered_points.append({"address": address, "frame_type": frame_type, "ref": ref, "code": code})
+                            log.info(f"映射测点: ({address}, {frame_type}) -> {ref}")
                         else:
                             # 动态模型模式 (ICD 导入): DO 没有前缀
-                            da_path = self._infer_da_path(frame_type)
-                            ref = f"{full_do_ref}.{da_path}"
-                            # address 使用 ICD 格式: "{ld_inst}/{ln}.{do}.{da_path}"
-                            address = f"{ld_inst}/{ln}.{do}.{da_path}"
-                            code = f"{ln}.{do}"  # 如 "M0GGIO1.AnIn1"
+                            # 优先通过查询服务端实际数据模型发现 DA 结构,
+                            # 避免因猜测错误导致测点遗漏 (如 GGIO.AnIn1 实际是 mag.f 遥测,
+                            # 但推断模式会基于 GGIO∈YX 错误地使用 stVal)
+                            da_paths = self._discover_da_paths(full_do_ref)
 
-                        self._point_refs[(address, frame_type)] = ref
-                        discovered_points.append({"address": address, "frame_type": frame_type, "ref": ref, "code": code})
-                        log.info(f"映射测点: ({address}, {frame_type}) -> {ref}")
+                            if da_paths:
+                                # 从服务端模型发现了具体的 DA 路径
+                                for da_path, frame_type in da_paths:
+                                    ref = f"{full_do_ref}.{da_path}"
+                                    address = f"{ld}/{ln}.{do}.{da_path}"
+                                    code = f"{ln}.{do}"
+                                    self._point_refs[(address, frame_type)] = ref
+                                    discovered_points.append({"address": address, "frame_type": frame_type, "ref": ref, "code": code})
+                                    log.info(f"映射测点: ({address}, {frame_type}) -> {ref}")
+                            else:
+                                # getDataDirectory 不可用或失败, 回退到推断模式
+                                frame_type = self._infer_frame_type_from_do(ln, do)
+                                if frame_type is None:
+                                    log.debug(f"跳过数据对象 {full_do_ref}: 无法推断测点类型")
+                                    continue
+
+                                da_path = self._infer_da_path(frame_type)
+                                ref = f"{full_do_ref}.{da_path}"
+                                address = f"{ld}/{ln}.{do}.{da_path}"
+                                code = f"{ln}.{do}"
+                                self._point_refs[(address, frame_type)] = ref
+                                discovered_points.append({"address": address, "frame_type": frame_type, "ref": ref, "code": code})
+                                log.info(f"映射测点: ({address}, {frame_type}) -> {ref}")
                     except Exception as e:
                         log.error(f"解析测点地址失败: {do}, 错误: {e}")
                         continue

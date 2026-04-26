@@ -12,6 +12,15 @@ YC_LN_CLASSES = frozenset({
     "MHAN", "MDIF", "MFLK", "MSEQ", "MFUL",
     "MHAI", "MHAV", "MHI", "MPMG", "MSQ",
     "MSTA", "MENV", "MLLN",
+    # 温度/环境/传感器监视类
+    "STMP",   # 温度监视 (Temperature supervision)
+    "SIMG",   # 绝缘监视 (Insulation supervision)
+    "SIML",   # 绝缘水平监视 (Insulation level supervision)
+    "SVCB",   # 电容器组监视 (Supervision of capacitor bank)
+    "SFCL",   # 滤波器监视 (Supervision of filter)
+    "SLTC",   # 有载分接开关监视 (Supervision of load tap changer)
+    "SMBP",   # 电机保护监视 (Supervision of motor protection)
+    "MMXN",   # 中性点测量 (Measurement for neutral)
 })
 
 YX_LN_CLASSES = frozenset({
@@ -39,6 +48,12 @@ YX_LN_CLASSES = frozenset({
     "CALH",
     # 其他
     "SAR",
+    # 监视/状态类
+    "STUB",   # 管路监视 (Supervision of tubing)
+    "YEFN",   # 接地故障 (Earth fault supervision)
+    "ZBTC",   # 电池温度 (Battery cell temperature)
+    "ZBGL",   # 电池等级 (Battery level)
+    "ZBXN",   # 电池中性点 (Battery neutral)
 })
 
 YK_LN_CLASSES = frozenset({
