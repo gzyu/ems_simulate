@@ -1,4 +1,9 @@
 # 更新日志
+## 未发布的更新
+1. 增加IEC61850树形结构展示
+2. IEC61850分为GOOSE、Reports、Logs、Setting Groups、Data Sets、Data Models、Files
+3. IEC61850可以按照分类查看对应模型数据
+
 ## [2.0.2] - 2026-4-26
 1. 修复IEC61850客户端连接超时阻塞问题(底层C API是同步阻塞方案, python侧改为线程后台调用)
 2. IEC61850导入点表改为完整引用导入(同时修改服务端和客户端)
