@@ -209,6 +209,7 @@ import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox, type TabsPaneContext } from "element-plus";
 import { Search, Refresh, Download, Plus, Delete, CircleCloseFilled, MoreFilled } from "@element-plus/icons-vue";
 import { getSlaveIdList, getDeviceTable, getDeviceInfo, getAutoReadStatus, startAutoRead, stopAutoRead, manualRead, instance, deleteSlave } from "@/api/deviceApi";
+import { getIEC61850TableData, iec61850ReadPoints } from "@/api/channelApi";
 import { readSinglePoint, clearPoints, resetPointData } from "@/api/pointApi";
 import DeviceTable from "./Table.vue";
 import AddPointDialog from "./AddPointDialog.vue";
@@ -231,7 +232,19 @@ const orderBy = ref<string | null>(null);
 const orderDirection = ref<string | null>(null);
 const protocolType = ref<number | string>(1);
 const connType = ref<number>(2); // 默认为服务端
+const channelId = ref<number | null>(null);
 const isAutoRead = ref<boolean>(false);
+
+// IEC61850 树形节点筛选
+const iec61850Category = ref<string>('');
+const iec61850Item = ref<string>('');
+
+// 判断当前是否为 IEC61850 树节点筛选模式
+const isIec61850Filtered = computed(() => {
+  const protocolStr = String(protocolType.value);
+  const isIec61850 = protocolStr === 'Iec61850Client' || protocolStr === 'Iec61850Server';
+  return isIec61850 && channelId.value !== null && !!iec61850Category.value;
+});
 
 // 判断是否需要显示自动读取控件 
 // Modbus 客户端/主站 (conn_type 0 或 1) 需要主动轮询，需要显示
@@ -279,6 +292,8 @@ const fetchSlaveList = async () => {
       protocolType.value = deviceInfo.get("type") ?? 1;
       // 确保 conn_type 是数字类型
       connType.value = Number(deviceInfo.get("conn_type") ?? 2);
+      // 存储 channel_id 用于 IEC61850 表格数据接口
+      channelId.value = deviceInfo.get("channel_id") ?? null;
     }
   } catch (e) { console.warn("设备信息获取失败"); }
   
@@ -291,6 +306,33 @@ const fetchSlaveList = async () => {
 };
 
 const fetchDeviceTable = async (name: string, sid: number, q: string, pi: number, ps: number) => {
+  // 如果是 IEC61850 树节点筛选模式，使用专用接口
+  if (isIec61850Filtered.value && channelId.value !== null) {
+    const data = await getIEC61850TableData(
+      channelId.value,
+      iec61850Category.value,
+      iec61850Item.value,
+      q || null,
+      pi,
+      ps,
+      pointTypes.value,
+    );
+    if (data) {
+      if (!tableDataMap.value[sid]) {
+        tableDataMap.value[sid] = { tableHeader: [], tableData: [], total: 0 };
+      }
+      tableDataMap.value[sid] = {
+        tableHeader: data.get("head_data"),
+        tableData: data.get("table_data"),
+        total: data.get("total"),
+      };
+      if (sid === currentSlaveId.value) {
+        total.value = data.get("total");
+      }
+    }
+    return;
+  }
+
   const data = await getDeviceTable(name, sid, q, pi, ps, pointTypes.value, orderBy.value, orderDirection.value);
   if (data) {
     // 确保初始化对象
@@ -467,6 +509,13 @@ const handleSlaveEdited = async (newSlaveId: number) => {
 watch(() => route.fullPath, async () => {
     // 强制刷新：当 query 参数变化（如添加了 t=timestamp）且属于本组件对应设备时触发
     if (route.params.deviceName && route.params.deviceName === initialDeviceName) {
+      // 同步 IEC61850 树节点筛选参数
+      const newCategory = (route.query.category as string) || '';
+      const newItem = (route.query.item as string) || '';
+      const filterChanged = newCategory !== iec61850Category.value || newItem !== iec61850Item.value;
+      iec61850Category.value = newCategory;
+      iec61850Item.value = newItem;
+
       if (routeName.value !== route.params.deviceName) {
           stopAutoRefresh();
           routeName.value = route.params.deviceName as string;
@@ -477,8 +526,13 @@ watch(() => route.fullPath, async () => {
           await fetchSlaveList();
           startAutoRefresh();
       } else {
-        // 同一设备，仅刷新数据
-        handleSearch(currentSlaveId.value);
+        // 同一设备，若筛选参数变化则重新加载数据
+        if (filterChanged) {
+          pageIndex.value = 1;
+          await fetchDeviceTable(routeName.value, currentSlaveId.value, searchQuery.value[currentSlaveId.value] || "", pageIndex.value, pageSize.value);
+        } else {
+          handleSearch(currentSlaveId.value);
+        }
       }
     }
 });
@@ -581,6 +635,39 @@ const handleBatchRead = async () => {
   progressMessage.value = "正在批量读取寄存器...";
   
   try {
+    // IEC61850 过滤模式下使用专用接口
+    if (isIec61850Filtered.value && channelId.value !== null) {
+      progressMessage.value = "正在读取 IEC61850 测点...";
+      const result = await iec61850ReadPoints(
+        channelId.value,
+        iec61850Category.value,
+        iec61850Item.value,
+        readInterval.value,
+      );
+
+      if (result) {
+        successCount.value = result.success;
+        failCount.value = result.fail;
+        progressMessage.value = `批量读取完成 (成功: ${result.success}, 失败: ${result.fail})`;
+        ElMessage.success(`批量读取完成，成功 ${result.success} 个，失败 ${result.fail} 个`);
+      } else {
+        readProgress.value = 100;
+        progressMessage.value = "批量读取完成";
+        ElMessage.success("批量读取完成");
+      }
+
+      await fetchDeviceTable(
+        routeName.value, 
+        currentSlaveId.value, 
+        searchQuery.value[currentSlaveId.value] || "", 
+        pageIndex.value, 
+        pageSize.value
+      );
+      
+      readProgress.value = 100;
+      return;
+    }
+
     const result = await manualRead(routeName.value, readInterval.value);
     
     // 如果返回的是对象则包含统计信息，否则视为全部成功
@@ -622,9 +709,26 @@ const handleSinglePointRead = async () => {
   progressMessage.value = "正在获取测点列表...";
 
   try {
-    // 1. 获取所有测点
-    const data = await getDeviceTable(routeName.value, currentSlaveId.value, "", 1, 10000, pointTypes.value);
-    const allRows = data.get("table_data") || [];
+    // IEC61850 过滤模式下使用专用接口获取测点列表
+    let allRows: any[][] = [];
+    if (isIec61850Filtered.value && channelId.value !== null) {
+      const data = await getIEC61850TableData(
+        channelId.value,
+        iec61850Category.value,
+        iec61850Item.value,
+        null,
+        1,
+        10000,
+        pointTypes.value,
+      );
+      if (data) {
+        allRows = data.get("table_data") || [];
+      }
+    } else {
+      const data = await getDeviceTable(routeName.value, currentSlaveId.value, "", 1, 10000, pointTypes.value);
+      allRows = data.get("table_data") || [];
+    }
+
     const totalPoints = allRows.length;
 
     if (totalPoints === 0) {
@@ -710,6 +814,10 @@ const fetchAutoReadStatus = async () => {
 };
 
 onMounted(async () => {
+  // 从路由查询参数初始化 IEC61850 筛选条件
+  iec61850Category.value = (route.query.category as string) || '';
+  iec61850Item.value = (route.query.item as string) || '';
+
   await fetchSlaveList();
   // 获取当前自动读取状态
   await fetchAutoReadStatus();

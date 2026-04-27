@@ -31,6 +31,7 @@
       <!-- 4. 未分组设备 -->
       <SideNavUngrouped
         :ungrouped-devices="ungroupedDevices"
+        :iec61850-map="iec61850UngroupedMap as any"
         :expanded="ungroupedExpanded"
         :current-device-name="currentDeviceName"
         :is-collapse="isCollapse"
@@ -40,6 +41,7 @@
         @delete-device="handleDeleteDeviceByName"
         @group-command="handleUngroupedCommand"
         @copy-device="handleCopyDeviceByName"
+        @node-click="handleUngroupedNodeClick"
       />
     </el-scrollbar>
   </el-aside>
@@ -101,6 +103,16 @@ import {
   type DeviceInfo
 } from "@/api/deviceGroupApi";
 
+// IEC61850 设备子节点类型
+interface IEC61850ChildNode {
+  nodeKey: string;
+  label: string;
+  isGroup: boolean;
+  isIec61850Child: boolean;
+  type: 'GOOSE' | 'Reports' | 'SettingGroups' | 'Files' | 'DataSets' | 'Data Model';
+  value?: string;
+}
+
 // 类型定义
 interface TreeNode {
   nodeKey: string;
@@ -110,6 +122,13 @@ interface TreeNode {
   name: string;
   groupId?: number;
   children?: TreeNode[];
+  isIec61850?: boolean;
+  isIec61850Child?: boolean;
+  iec61850ChannelId?: number;
+  iec61850Children?: IEC61850ChildNode[];
+  deviceName?: string;
+  type?: string;
+  value?: string;
 }
 
 const router = useRouter();
@@ -137,6 +156,9 @@ const expandedKeys = ref<string[]>([]);
 const currentNodeKey = ref<string>('');
 const currentDeviceName = ref<string>('');
 const ungroupedExpanded = ref(true);
+
+// 未分组设备的 IEC61850 子节点映射 (deviceName -> children)
+const iec61850UngroupedMap = ref<Record<string, TreeNode[]>>({});
 
 const treeProps = { children: 'children', label: 'label' };
 
@@ -186,6 +208,207 @@ const transformToTreeData = (groups: DeviceGroupTreeNode[]): TreeNode[] => {
   });
 };
 
+// 获取 IEC61850 子节点结构
+const fetchIEC61850Structure = async (channelId: number, deviceName: string) => {
+  const categories: Array<{ key: string; label: string }> = [
+    { key: 'GOOSE', label: 'GOOSE' },
+    { key: 'Reports', label: 'Reports' },
+    { key: 'SettingGroups', label: 'SettingGroups' },
+    { key: 'Files', label: 'Files' },
+    { key: 'DataSets', label: 'DataSets' },
+    { key: 'Data Model', label: 'Data Model' },
+  ];
+
+  const buildIEC61850Children = (structure: any) => {
+    const iec61850Children: TreeNode[] = [];
+    categories.forEach((cat) => {
+      const items = structure[cat.key] || [];
+      if (items.length > 0) {
+        const categoryChildren: TreeNode[] = items.map((item: string, itemIndex: number) => ({
+          nodeKey: `device-${deviceName}-${cat.key}-${itemIndex}`,
+          label: item,
+          isGroup: false,
+          id: 0,
+          isIec61850Child: true,
+          name: item,
+          deviceName: deviceName,
+          type: cat.label,
+        }));
+        iec61850Children.push({
+          nodeKey: `device-${deviceName}-${cat.key}`,
+          label: cat.label,
+          isGroup: true,
+          id: 0,
+          isIec61850Child: true,
+          name: cat.label,
+          deviceName: deviceName,
+          type: cat.label,
+          children: categoryChildren,
+        });
+      } else {
+        iec61850Children.push({
+          nodeKey: `device-${deviceName}-${cat.key}`,
+          label: cat.label,
+          isGroup: false,
+          id: 0,
+          isIec61850Child: true,
+          name: cat.label,
+        });
+      }
+    });
+    return iec61850Children;
+  };
+
+  const updateTreeNode = (nodes: TreeNode[], iec61850Children: TreeNode[]) => {
+    for (const node of nodes) {
+      if (node.name === deviceName && node.isIec61850) {
+        node.children = iec61850Children;
+        return true;
+      }
+      if (node.children && updateTreeNode(node.children, iec61850Children)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  try {
+    const { getIEC61850Structure } = await import("@/api/channelApi");
+    const structure = await getIEC61850Structure(channelId);
+    const iec61850Children = buildIEC61850Children(structure);
+    updateTreeNode(treeData.value, iec61850Children);
+    treeData.value = [...treeData.value];
+  } catch (error) {
+    console.warn(`获取 IEC61850 结构失败 (设备: ${deviceName}), 显示默认结构:`, error);
+    const iec61850Children: TreeNode[] = categories.map(cat => ({
+      nodeKey: `device-${deviceName}-${cat.key}`,
+      label: cat.label,
+      isGroup: false,
+      id: 0,
+      isIec61850Child: true,
+      name: cat.label,
+      deviceName: deviceName,
+      type: cat.label,
+    }));
+    updateTreeNode(treeData.value, iec61850Children);
+    treeData.value = [...treeData.value];
+  }
+};
+
+// 标记 IEC61850 设备
+const markIEC61850Devices = async (nodes: TreeNode[]) => {
+  try {
+    const channels = await getChannelList();
+    for (const node of nodes) {
+      if (!node.isGroup && node.name) {
+        const channel = channels.find(c => c.name === node.name);
+        if (channel && channel.protocol_type === 4) {
+          node.isIec61850 = true;
+          node.iec61850ChannelId = channel.id;
+          fetchIEC61850Structure(channel.id, node.name);
+        }
+      }
+      if (node.children) {
+        await markIEC61850Devices(node.children);
+      }
+    }
+  } catch (error) {
+    console.error('标记 IEC61850 设备失败:', error);
+  }
+};
+
+// 标记并获取未分组设备的 IEC61850 结构
+const markUngroupedIEC61850Devices = async (devices: DeviceInfo[]) => {
+  try {
+    const channels = await getChannelList();
+    const categories: Array<{ key: string; label: string }> = [
+      { key: 'GOOSE', label: 'GOOSE' },
+      { key: 'Reports', label: 'Reports' },
+      { key: 'SettingGroups', label: 'SettingGroups' },
+      { key: 'Files', label: 'Files' },
+      { key: 'DataSets', label: 'DataSets' },
+      { key: 'Data Model', label: 'Data Model' },
+    ];
+
+    const buildChildren = (structure: any, deviceName: string): TreeNode[] => {
+      const children: TreeNode[] = [];
+      categories.forEach((cat) => {
+        const items = structure[cat.key] || [];
+        if (items.length > 0) {
+          const categoryChildren: TreeNode[] = items.map((item: string, idx: number) => ({
+            nodeKey: `ungrouped-${deviceName}-${cat.key}-${idx}`,
+            label: item,
+            isGroup: false,
+            id: 0,
+            isIec61850Child: true,
+            name: item,
+            deviceName: deviceName,
+            type: cat.label,
+          }));
+          children.push({
+            nodeKey: `ungrouped-${deviceName}-${cat.key}`,
+            label: cat.label,
+            isGroup: true,
+            id: 0,
+            isIec61850Child: true,
+            name: cat.label,
+            deviceName: deviceName,
+            type: cat.label,
+            children: categoryChildren,
+          });
+        } else {
+          children.push({
+            nodeKey: `ungrouped-${deviceName}-${cat.key}`,
+            label: cat.label,
+            isGroup: false,
+            id: 0,
+            isIec61850Child: true,
+            name: cat.label,
+            deviceName: deviceName,
+            type: cat.label,
+          });
+        }
+      });
+      return children;
+    };
+
+    for (const device of devices) {
+      const channel = channels.find(c => c.name === device.name);
+      if (channel && channel.protocol_type === 4) {
+        // 异步获取，不阻塞其他设备
+        (async () => {
+          try {
+            const { getIEC61850Structure } = await import("@/api/channelApi");
+            const structure = await getIEC61850Structure(channel.id);
+            iec61850UngroupedMap.value = {
+              ...iec61850UngroupedMap.value,
+              [device.name]: buildChildren(structure, device.name),
+            };
+          } catch (error) {
+            console.warn(`获取未分组 IEC61850 结构失败 (设备: ${device.name}):`, error);
+            const fallback: TreeNode[] = categories.map(cat => ({
+              nodeKey: `ungrouped-${device.name}-${cat.key}`,
+              label: cat.label,
+              isGroup: false,
+              id: 0,
+              isIec61850Child: true,
+              name: cat.label,
+              deviceName: device.name,
+              type: cat.label,
+            }));
+            iec61850UngroupedMap.value = {
+              ...iec61850UngroupedMap.value,
+              [device.name]: fallback,
+            };
+          }
+        })();
+      }
+    }
+  } catch (error) {
+    console.error('标记未分组 IEC61850 设备失败:', error);
+  }
+};
+
 const fetchDeviceGroupTree = async () => {
   try {
     const response = await getDeviceGroupTree();
@@ -230,6 +453,12 @@ const fetchDeviceGroupTree = async () => {
     ungroupedDevices.value = newUngrouped;
     treeData.value = newTreeData; // 最后更新 treeData，触发 SideNavTree 的监听
 
+    // 标记并获取 IEC61850 设备结构
+    await markIEC61850Devices(newTreeData);
+
+    // 标记并获取未分组设备的 IEC61850 结构
+    await markUngroupedIEC61850Devices(newUngrouped);
+
     // 如果是未分组设备，展开未分组区域
     if (currentDeviceName.value) {
       const isUngrouped = newUngrouped.some(d => d.name === currentDeviceName.value);
@@ -250,23 +479,52 @@ const fetchDeviceGroupTree = async () => {
 
 // 交互处理
 const handleNodeClick = (data: TreeNode) => {
+  if (data.isIec61850Child) {
+    // IEC61850 子节点点击: 携带 category/item 导航到设备页面
+    // data.deviceName 是所属设备名，data.type 是分类 (如 "Data Model")，data.name 是项名 (如 "GenericLD")
+    const deviceName = data.deviceName || data.name;
+    const category = data.type || (data.isGroup ? data.name : '');
+    const item = data.isGroup ? '' : (data.name || data.label);
+    navigateToDevice(deviceName, false, data.isIec61850Child, { ...data, _category: category, _item: item });
+    return;
+  }
   if (!data.isGroup) navigateToDevice(data.name);
 };
 
 const handleDeviceClick = (device: DeviceInfo) => navigateToDevice(device.name);
 
-const navigateToDevice = (deviceName: string, forceRefresh = false) => {
+// 处理未分组区域的 IEC61850 子节点点击
+const handleUngroupedNodeClick = (data: any) => {
+  if (data.isIec61850Child) {
+    // 找到该子节点所属的设备名
+    const deviceName = data.deviceName || currentDeviceName.value;
+    // 构建 category 和 item 信息
+    // data.type 是分类 (如 "Data Model")，data.name 是项名 (如 "GenericLD")
+    const category = data.type || (data.isGroup ? data.name : '');
+    const item = data.isGroup ? '' : data.name;
+    navigateToDevice(deviceName, false, true, { ...data, _category: category, _item: item });
+  }
+};
+
+const navigateToDevice = (deviceName: string, forceRefresh = false, isIec61850Child = false, treeNode?: any) => {
   currentDeviceName.value = deviceName;
   currentNodeKey.value = `device-${deviceName}`;
   const path = `/device/${deviceName}`;
   localStorage.setItem("activeRoute", path);
 
-  if (forceRefresh) {
-    // For tabs, we actually probably don't want to ever force refresh
-    // using query params as it breaks keep-alive matching easily by path.
-    // If needed, can use another mechanism. For now, just navigate.
+  // 构建查询参数，IEC61850 子节点携带 category/item
+  const query: Record<string, string> = {};
+  if (isIec61850Child && treeNode) {
+    // 优先使用 _category/_item (来自 handleUngroupedNodeClick 的计算值)
+    const category = treeNode._category || (treeNode.isGroup ? (treeNode.type || treeNode.name || treeNode.label) : '');
+    const item = treeNode._item || (treeNode.isGroup ? '' : (treeNode.name || treeNode.label));
+    if (category) query.category = category;
+    if (item) query.item = item;
   }
-  router.push(path);
+
+  if (forceRefresh) {
+  }
+  router.push({ path, query: Object.keys(query).length > 0 ? query : undefined });
 };
 
 const showAddDeviceDialog = () => {
@@ -541,13 +799,20 @@ watch(() => router.currentRoute.value.params.deviceName, (name) => {
         padding: 10px;
 
         span,
-        .node-actions {
+        .node-actions,
+        .expand-arrow,
+        .expand-arrow-placeholder {
           display: none !important;
         }
 
         .el-icon {
           margin-right: 0;
         }
+      }
+
+      .iec61850-children,
+      .iec61850-sub-children {
+        display: none !important;
       }
     }
   }

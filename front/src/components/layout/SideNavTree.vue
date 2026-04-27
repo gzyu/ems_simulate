@@ -8,39 +8,77 @@
     :current-node-key="currentNodeKey"
     :expand-on-click-node="false"
     highlight-current
-    @node-click="(data: any) => $emit('node-click', data)"
+    @node-click="(data: any) => handleNodeClick(data)"
     class="device-tree"
   >
     <template #default="{ node, data }">
-      <div class="tree-node-content" :class="{ 'is-group': data.isGroup }">
+      <div
+        class="tree-node-content"
+        :class="{
+          'is-group': data.isGroup,
+          'is-iec61850-child': data.isIec61850Child,
+          'is-iec61850-device': data.isIec61850 && !data.isGroup,
+        }"
+      >
         <el-tooltip :content="node.label" placement="right" :disabled="!isCollapse">
           <el-icon class="node-icon">
-            <Folder v-if="data.isGroup" />
+            <Folder v-if="data.isGroup && !data.isIec61850Child" />
+            <Connection v-else-if="data.isIec61850 && !data.isGroup" />
+            <FolderOpened v-else-if="data.isGroup && data.isIec61850Child" />
+            <Document v-else-if="data.isIec61850Child" />
             <Cpu v-else />
           </el-icon>
         </el-tooltip>
         <span class="node-label">{{ node.label }}</span>
-        
+
         <div class="node-actions" v-if="!isCollapse" @click.stop>
-          <template v-if="data.isGroup">
-            <el-dropdown trigger="click" @command="(cmd: string) => $emit('group-command', cmd, data)">
+          <template v-if="data.isGroup && !data.isIec61850Child">
+            <el-dropdown
+              trigger="click"
+              @command="(cmd: string) => $emit('group-command', cmd, data)"
+            >
               <el-button link size="small" :icon="MoreFilled" />
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="edit" :icon="Edit">编辑</el-dropdown-item>
-                  <el-dropdown-item command="addDevice" :icon="Plus">添加设备</el-dropdown-item>
-                  <el-dropdown-item command="addSubGroup" :icon="FolderAdd">添加子分组</el-dropdown-item>
-                  <el-dropdown-item command="startAll" :icon="VideoPlay">启动全部</el-dropdown-item>
-                  <el-dropdown-item command="stopAll" :icon="VideoPause">停止全部</el-dropdown-item>
-                  <el-dropdown-item command="delete" :icon="Delete" divided>删除</el-dropdown-item>
+                  <el-dropdown-item command="addDevice" :icon="Plus"
+                    >添加设备</el-dropdown-item
+                  >
+                  <el-dropdown-item command="addSubGroup" :icon="FolderAdd"
+                    >添加子分组</el-dropdown-item
+                  >
+                  <el-dropdown-item command="startAll" :icon="VideoPlay"
+                    >启动全部</el-dropdown-item
+                  >
+                  <el-dropdown-item command="stopAll" :icon="VideoPause"
+                    >停止全部</el-dropdown-item
+                  >
+                  <el-dropdown-item command="delete" :icon="Delete" divided
+                    >删除</el-dropdown-item
+                  >
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
           </template>
-          <template v-else>
-            <el-button link size="small" :icon="Edit" @click="$emit('edit-device', data)" />
-            <el-button link size="small" :icon="DocumentCopy" @click="$emit('copy-device', data)" />
-            <el-button link size="small" :icon="Delete" @click="$emit('delete-device', data)" />
+          <template v-else-if="!data.isIec61850Child">
+            <el-button
+              link
+              size="small"
+              :icon="Edit"
+              @click="$emit('edit-device', data)"
+            />
+            <el-button
+              link
+              size="small"
+              :icon="DocumentCopy"
+              @click="$emit('copy-device', data)"
+            />
+            <el-button
+              link
+              size="small"
+              :icon="Delete"
+              @click="$emit('delete-device', data)"
+            />
           </template>
         </div>
       </div>
@@ -50,10 +88,21 @@
 
 <script lang="ts" setup>
 import { onMounted, ref, watch, nextTick } from "vue";
-import { ElTree } from 'element-plus';
+import { ElTree } from "element-plus";
 import {
-  Folder, Cpu, MoreFilled, Edit, Plus, FolderAdd,
-  VideoPlay, VideoPause, Delete, DocumentCopy
+  Folder,
+  FolderOpened,
+  Cpu,
+  MoreFilled,
+  Edit,
+  Plus,
+  FolderAdd,
+  VideoPlay,
+  VideoPause,
+  Delete,
+  DocumentCopy,
+  Connection,
+  Document,
 } from "@element-plus/icons-vue";
 
 const props = defineProps<{
@@ -65,19 +114,44 @@ const props = defineProps<{
 }>();
 
 defineEmits<{
-  (e: 'node-click', data: any): void;
-  (e: 'group-command', command: string, data: any): void;
-  (e: 'edit-device', data: any): void;
-  (e: 'delete-device', data: any): void;
-  (e: 'copy-device', data: any): void;
+  (e: "node-click", data: any): void;
+  (e: "group-command", command: string, data: any): void;
+  (e: "edit-device", data: any): void;
+  (e: "delete-device", data: any): void;
+  (e: "copy-device", data: any): void;
 }>();
 
 const treeRef = ref<InstanceType<typeof ElTree>>();
 
+// 处理节点点击，为 IEC61850 子节点补充 category 信息
+const handleNodeClick = (data: any) => {
+  if (data.isIec61850Child) {
+    // 从 nodeKey 推断 category: nodeKey 格式如 "device-{name}-Data Model" 或 "device-{name}-Data Model-{idx}"
+    // type 字段在构建树时已经设置
+    const enrichedData = { ...data };
+    // 如果没有 type 字段，从 nodeKey 中提取
+    if (!enrichedData.type && enrichedData.nodeKey) {
+      const keyParts = String(enrichedData.nodeKey).split('-');
+      // 尝试匹配 category: "device-{deviceName}-{category}" 或 "ungrouped-{deviceName}-{category}-{idx}"
+      const categories = ['GOOSE', 'Reports', 'SettingGroups', 'Files', 'DataSets', 'Data Model'];
+      for (const cat of categories) {
+        if (String(enrichedData.nodeKey).includes(cat.replace(' ', ''))) {
+          enrichedData.type = cat;
+          break;
+        }
+      }
+    }
+    emit('node-click', enrichedData);
+  } else {
+    emit('node-click', data);
+  }
+};
+
+
 const expandKeys = () => {
   nextTick(() => {
     if (!treeRef.value) return;
-    props.expandedKeys.forEach(key => {
+    props.expandedKeys.forEach((key) => {
       const node = treeRef.value?.getNode(key);
       if (node) {
         node.expanded = true;
@@ -102,11 +176,15 @@ const setCurrentKey = () => {
 };
 
 watch(() => props.expandedKeys, expandKeys, { deep: true });
-watch(() => props.treeData, () => {
-  // 数据更新时，先展开，再设置选中。给予更多时间确保 DOM 更新。
-  expandKeys();
-  setTimeout(setCurrentKey, 50);
-}, { deep: true });
+watch(
+  () => props.treeData,
+  () => {
+    // 数据更新时，先展开，再设置选中。给予更多时间确保 DOM 更新。
+    expandKeys();
+    setTimeout(setCurrentKey, 50);
+  },
+  { deep: true }
+);
 watch(() => props.currentNodeKey, setCurrentKey);
 </script>
 
@@ -149,6 +227,19 @@ watch(() => props.currentNodeKey, setCurrentKey);
   color: var(--text-primary);
 }
 
+.tree-node-content.is-iec61850-child {
+  padding-left: 20px;
+}
+
+.tree-node-content.is-iec61850-child .node-label {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.tree-node-content.is-iec61850-device {
+  font-weight: 500;
+}
+
 .node-icon {
   margin-right: 12px;
   font-size: 18px;
@@ -157,6 +248,15 @@ watch(() => props.currentNodeKey, setCurrentKey);
 
 .is-group .node-icon {
   color: var(--color-primary);
+}
+
+.is-iec61850-device .node-icon {
+  color: var(--color-primary);
+}
+
+.is-iec61850-child .node-icon {
+  color: var(--text-secondary);
+  font-size: 16px;
 }
 
 .node-label {

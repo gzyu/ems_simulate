@@ -68,6 +68,7 @@ async def get_device_info(req: DeviceInfoRequest, request: Request):
              info_dict["ip"] = channel.get("ip")
              info_dict["port"] = channel.get("port")
              info_dict["conn_type"] = channel.get("conn_type", 2)
+             info_dict["channel_id"] = channel.get("id")
         else:
              info_dict["conn_type"] = 2
         

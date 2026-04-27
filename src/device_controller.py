@@ -70,6 +70,13 @@ class DeviceController:
                 return device
         return None
 
+    def get_device_by_channel_id(self, channel_id: int) -> Optional[Device]:
+        """根据通道 ID 查找设备（创建设备时 device_id == channel_id）"""
+        for device in self.device_list:
+            if getattr(device, 'device_id', None) == channel_id:
+                return device
+        return None
+
     async def remove_device_by_id(self, device_id: int) -> bool:
         """根据设备 ID 停止并移除设备"""
         device = self.get_device_by_id(device_id)

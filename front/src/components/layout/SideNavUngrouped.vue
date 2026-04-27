@@ -7,7 +7,7 @@
       </div>
       
       <div class="header-actions" v-if="!isCollapse" @click.stop>
-        <el-dropdown trigger="click" @command="(cmd: string) => $emit('group-command', cmd)">
+        <el-dropdown trigger="click" @command="(cmd) => $emit('group-command', cmd)">
           <el-button link size="small" :icon="MoreFilled" />
           <template #dropdown>
             <el-dropdown-menu>
@@ -23,18 +23,72 @@
       <div
         v-for="device in ungroupedDevices"
         :key="device.id"
-        class="ungrouped-item"
-        :class="{ 'is-active': currentDeviceName === device.name }"
-        @click="$emit('device-click', device)"
+        class="ungrouped-item-wrapper"
       >
-        <el-tooltip :content="device.name" placement="right" :disabled="!isCollapse">
-          <el-icon><Cpu /></el-icon>
-        </el-tooltip>
-        <span>{{ device.name }}</span>
-        <div class="node-actions" v-if="!isCollapse" @click.stop>
-          <el-button link size="small" :icon="Edit" @click="$emit('edit-device', device.name)" />
-          <el-button link size="small" :icon="DocumentCopy" @click="$emit('copy-device', device.name)" />
-          <el-button link size="small" :icon="Delete" @click="$emit('delete-device', device.name)" />
+        <div
+          class="ungrouped-item"
+          :class="{ 'is-active': selectedNodeKey === `device-${device.name}` }"
+          @click="handleDeviceClick(device)"
+        >
+          <!-- IEC61850 展开箭头 -->
+          <el-icon
+            v-if="iec61850Map[device.name]"
+            class="expand-arrow"
+            :class="{ 'is-expanded': expandedIec61850[device.name] }"
+            @click.stop="toggleIec61850(device.name)"
+          >
+            <ArrowRight />
+          </el-icon>
+          <span v-else class="expand-arrow-placeholder" />
+          <el-tooltip :content="device.name" placement="right" :disabled="!isCollapse">
+            <el-icon v-if="iec61850Map[device.name]" class="node-icon iec61850-icon"><Connection /></el-icon>
+            <el-icon v-else class="node-icon"><Cpu /></el-icon>
+          </el-tooltip>
+          <span class="device-name">{{ device.name }}</span>
+          <div class="node-actions" v-if="!isCollapse" @click.stop>
+            <el-button link size="small" :icon="Edit" @click="$emit('edit-device', device.name)" />
+            <el-button link size="small" :icon="DocumentCopy" @click="$emit('copy-device', device.name)" />
+            <el-button link size="small" :icon="Delete" @click="$emit('delete-device', device.name)" />
+          </div>
+        </div>
+
+        <!-- IEC61850 子节点树 -->
+        <div v-if="iec61850Map[device.name]" v-show="expandedIec61850[device.name]" class="iec61850-children">
+          <div
+            v-for="child in iec61850Map[device.name]"
+            :key="child.nodeKey"
+            class="iec61850-child-item"
+            :class="{ 'is-group': child.isGroup }"
+          >
+            <div class="child-row" :class="{ 'is-selected': selectedNodeKey === child.nodeKey }" @click="handleChildClick(device.name, child)">
+              <el-icon
+                v-if="child.isGroup"
+                class="expand-arrow small"
+                :class="{ 'is-expanded': expandedCategories[`${device.name}::${child.nodeKey}`] }"
+              >
+                <ArrowRight />
+              </el-icon>
+              <span v-else class="expand-arrow-placeholder small" />
+              <el-icon class="child-icon">
+                <FolderOpened v-if="child.isGroup" />
+                <Document v-else />
+              </el-icon>
+              <span class="child-label">{{ child.label }}</span>
+            </div>
+            <!-- 分类下的子项 -->
+            <div v-if="child.isGroup && child.children" v-show="expandedCategories[`${device.name}::${child.nodeKey}`]" class="iec61850-sub-children">
+              <div
+                v-for="subChild in child.children"
+                :key="subChild.nodeKey"
+                class="iec61850-sub-item"
+                :class="{ 'is-selected': selectedNodeKey === subChild.nodeKey }"
+                @click="handleSubChildClick(subChild)"
+              >
+                <el-icon class="sub-icon"><Document /></el-icon>
+                <span class="sub-label">{{ subChild.label }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -42,24 +96,91 @@
 </template>
 
 <script lang="ts" setup>
-import { ArrowRight, Cpu, Edit, Delete, MoreFilled, Plus, VideoPlay, VideoPause, DocumentCopy } from "@element-plus/icons-vue";
+import { ref, watch } from "vue";
+import {
+  ArrowRight, Cpu, Edit, Delete, MoreFilled, Plus, VideoPlay, VideoPause,
+  DocumentCopy, Connection, FolderOpened, Document,
+} from "@element-plus/icons-vue";
 
+interface TreeNode {
+  nodeKey: string;
+  label: string;
+  isGroup: boolean;
+  id: number;
+  isIec61850Child?: boolean;
+  name: string;
+  type?: 'GOOSE' | 'Reports' | 'SettingGroups' | 'Files' | 'DataSets' | 'Data Model';
+  value?: string;
+  deviceName?: string;
+  children?: TreeNode[];
+}
 
-defineProps<{
+const props = defineProps<{
   ungroupedDevices: any[];
+  iec61850Map: Record<string, TreeNode[]>;
   expanded: boolean;
   currentDeviceName: string;
   isCollapse: boolean;
+  selectedNodeKey?: string;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'toggle'): void;
   (e: 'device-click', device: any): void;
   (e: 'edit-device', name: string): void;
   (e: 'delete-device', name: string): void;
   (e: 'group-command', command: string): void;
   (e: 'copy-device', name: string): void;
+  (e: 'node-click', data: any): void;
 }>();
+
+// IEC61850 设备展开状态
+const expandedIec61850 = ref<Record<string, boolean>>({});
+const expandedCategories = ref<Record<string, boolean>>({});
+const selectedNodeKey = ref<string>('');
+
+const toggleIec61850 = (deviceName: string) => {
+  expandedIec61850.value[deviceName] = !expandedIec61850.value[deviceName];
+  expandedIec61850.value = { ...expandedIec61850.value };
+};
+
+const toggleIec61850Category = (deviceName: string, nodeKey: string) => {
+  const key = `${deviceName}::${nodeKey}`;
+  expandedCategories.value[key] = !expandedCategories.value[key];
+  expandedCategories.value = { ...expandedCategories.value };
+};
+
+// 点击设备行：如果是 IEC61850 设备则展开/折叠树，同时选中设备
+const handleDeviceClick = (device: any) => {
+  selectedNodeKey.value = `device-${device.name}`;
+  if (props.iec61850Map[device.name]) {
+    toggleIec61850(device.name);
+  }
+  emit('device-click', device);
+};
+
+// 点击 IEC61850 子节点
+const handleChildClick = (deviceName: string, child: TreeNode) => {
+  selectedNodeKey.value = child.nodeKey;
+  if (child.isGroup) {
+    toggleIec61850Category(deviceName, child.nodeKey);
+  }
+  // 发出 node-click 事件，传递完整的节点信息（包含 category/type）
+  emit('node-click', { ...child, deviceName, isIec61850Child: true });
+};
+
+// 点击 IEC61850 子项
+const handleSubChildClick = (subChild: TreeNode) => {
+  selectedNodeKey.value = subChild.nodeKey;
+  // 发出 node-click 事件，传递完整的节点信息
+  // subChild 需要知道所属的 deviceName 和 parent category
+  emit('node-click', { ...subChild, isIec61850Child: true, deviceName: subChild.deviceName });
+};
+
+// 当 iec61850Map 变化时，重置展开状态
+watch(() => props.iec61850Map, () => {
+  // 数据刷新时重置展开状态
+}, { deep: true });
 </script>
 
 <style lang="scss" scoped>
@@ -130,13 +251,16 @@ defineEmits<{
   padding: 8px 0 0 10px;
 }
 
+.ungrouped-item-wrapper {
+  margin-bottom: 2px;
+}
+
 .ungrouped-item {
   display: flex;
   align-items: center;
   padding: 10px 14px;
   cursor: pointer;
   border-radius: 10px;
-  margin-bottom: 4px;
   transition: all 0.2s;
   color: var(--text-secondary);
 }
@@ -153,13 +277,18 @@ defineEmits<{
   box-shadow: inset 2px 0 0 var(--color-primary);
 }
 
-.ungrouped-item .el-icon {
+.ungrouped-item .node-icon {
   margin-right: 12px;
   font-size: 18px;
   color: var(--text-secondary);
 }
 
-.ungrouped-item span {
+.ungrouped-item .iec61850-icon {
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.ungrouped-item .device-name {
   flex: 1;
   font-size: 13.5px;
 }
@@ -184,5 +313,123 @@ defineEmits<{
 .node-actions .el-button:hover {
   background-color: var(--item-active-bg);
   color: var(--color-primary);
+}
+
+/* 展开箭头 */
+.expand-arrow {
+  width: 16px;
+  height: 16px;
+  margin-right: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.expand-arrow.is-expanded {
+  transform: rotate(90deg);
+}
+
+.expand-arrow-placeholder {
+  width: 16px;
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+
+.expand-arrow-placeholder.small {
+  width: 12px;
+  margin-right: 1px;
+}
+
+.expand-arrow.small {
+  width: 12px;
+  height: 12px;
+  font-size: 10px;
+  margin-right: 1px;
+}
+
+/* IEC61850 子节点样式 */
+.iec61850-children {
+  padding: 4px 0 6px 24px;
+}
+
+.iec61850-child-item {
+  border-radius: 8px;
+  transition: all 0.15s;
+}
+
+.iec61850-child-item.is-group {
+  font-weight: 500;
+}
+
+.child-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.15s;
+  color: var(--text-secondary);
+}
+
+.child-row:hover {
+  background-color: var(--item-hover-bg);
+  color: var(--text-primary);
+}
+
+.child-row.is-selected {
+  background: var(--item-active-bg);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.child-icon {
+  margin-right: 10px;
+  font-size: 16px;
+  color: var(--color-primary);
+}
+
+.iec61850-child-item:not(.is-group) .child-icon {
+  color: var(--text-secondary);
+}
+
+.child-label {
+  font-size: 12.5px;
+}
+
+/* IEC61850 子项 */
+.iec61850-sub-children {
+  padding: 2px 0 4px 20px;
+}
+
+.iec61850-sub-item {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.iec61850-sub-item:hover {
+  background-color: var(--item-hover-bg);
+  color: var(--text-primary);
+}
+
+.iec61850-sub-item.is-selected {
+  background: var(--item-active-bg);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.sub-icon {
+  margin-right: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.sub-label {
+  font-size: 12px;
 }
 </style>

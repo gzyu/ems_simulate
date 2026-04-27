@@ -216,3 +216,76 @@ export async function copyDevice(request: CopyDeviceRequest): Promise<CopyDevice
         throw error;
     }
 }
+
+export interface IEC61850Structure {
+    GOOSE: string[];
+    Reports: string[];
+    SettingGroups: string[];
+    Files: string[];
+    DataSets: string[];
+    "Data Model": string[];
+}
+
+export async function getIEC61850Structure(channelId: number): Promise<IEC61850Structure> {
+    try {
+        const data = await requestApi(`/channel/iec61850_structure/${channelId}`, 'get', null);
+        return data;
+    } catch (error) {
+        console.error('Error fetching IEC61850 structure:', error);
+        throw error;
+    }
+}
+
+export interface IEC61850TableDataResponse {
+    total: number;
+    head_data: string[];
+    table_data: any[][];
+    category: string;
+    item: string;
+}
+
+export async function iec61850ReadPoints(
+    channelId: number,
+    category: string = '',
+    item: string = '',
+    intervalMs: number = 0,
+): Promise<{ success: number; fail: number } | null> {
+    try {
+        const data = await requestApi('/channel/iec61850_read_points/' + channelId, 'post', {
+            category,
+            item,
+            interval_ms: intervalMs,
+        });
+        return data;
+    } catch (error) {
+        console.error('Error reading IEC61850 points:', error);
+        throw error;
+    }
+}
+
+export async function getIEC61850TableData(
+    channelId: number,
+    category: string = '',
+    item: string = '',
+    pointName: string | null = null,
+    pageIndex: number = 1,
+    pageSize: number = 10,
+    pointTypes: number[] = [],
+): Promise<Map<string, any>> {
+    try {
+        const params = new URLSearchParams();
+        if (category) params.append('category', category);
+        if (item) params.append('item', item);
+        if (pointName) params.append('point_name', pointName);
+        params.append('page_index', pageIndex.toString());
+        params.append('page_size', pageSize.toString());
+        if (pointTypes.length > 0) {
+            params.append('point_types', pointTypes.join(','));
+        }
+        const data = await requestApi(`/channel/iec61850_table_data/${channelId}?${params.toString()}`, 'get', null);
+        return new Map<string, any>(Object.entries(data));
+    } catch (error) {
+        console.error('Error fetching IEC61850 table data:', error);
+        throw error;
+    }
+}
