@@ -4,7 +4,13 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+
+from src.enums.points.iec104_type import (
+    IEC104Type,
+    IEC104_DEFAULT_TYPE,
+    get_iec104_types_by_frame_type,
+)
 
 
 class ProtocolStrategy(ABC):
@@ -74,13 +80,32 @@ class IEC104Strategy(ProtocolStrategy):
         return "0x42"  # IEC104 默认使用浮点数
 
     def get_point_type_mapping(self) -> Dict[int, Any]:
-        # 映射到 c104.Type 的值（实际使用时需要导入 c104 模块）
-        return {
-            0: "M_ME_NC_1",  # 遥测 - 短浮点数
-            1: "M_SP_NA_1",  # 遥信 - 单点信息
-            2: "C_SC_NA_1",  # 遥控 - 单点命令
-            3: "C_SE_NC_1",  # 遥调 - 设点命令浮点数
-        }
+        """获取帧类型到默认 IEC104 类型的映射（向后兼容）"""
+        return {ft: t.value for ft, t in IEC104_DEFAULT_TYPE.items()}
+
+    def get_available_types(self, frame_type: int) -> list:
+        """获取指定帧类型的所有可用 IEC104 类型列表
+
+        Args:
+            frame_type: 帧类型 (0-3)
+
+        Returns:
+            IEC104TypeInfo 列表
+        """
+        return get_iec104_types_by_frame_type(frame_type)
+
+    def resolve_type(self, type_id: Optional[str], frame_type: int) -> IEC104Type:
+        """解析 IEC104 类型标识
+
+        Args:
+            type_id: 类型标识字符串（如 "M_ME_NC_1"），为 None 时使用默认
+            frame_type: 帧类型
+
+        Returns:
+            IEC104Type 枚举
+        """
+        from src.enums.points.iec104_type import resolve_iec104_type
+        return resolve_iec104_type(type_id, frame_type)
 
     def process_address(self, address: str, frame_type: int) -> str:
         """将地址转换为 IEC104 信息对象地址"""

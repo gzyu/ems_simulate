@@ -412,6 +412,11 @@ class DataReader:
         
         当服务端主动上报数据时，c104.Point 对象的 .value 会自动更新，
         此方法将这些值同步到应用内部的测点对象。
+        
+        c104 库对不同 ASDU 类型返回不同的值类型：
+        - 归一化 (M_ME_NA_1): 返回 NormalizedFloat，float() 后为 -1~+1 范围的浮点数
+        - 标度化 (M_ME_NB_1): 返回 Int16，float() 后为标度值
+        - 短浮点 (M_ME_NC_1): 返回 Python float
         """
         try:
             from src.device.protocol.iec104_handler import IEC104ClientHandler
@@ -443,23 +448,35 @@ class DataReader:
                         self._log.error(f"Point {point.code} not found in client")
                         continue
 
-                    real_val = c104_point.value
-                    if real_val is not None:
-                        # 遥测点需要反向换算
+                    # float() 统一将 c104 值转为 Python float
+                    # c104 库已内部完成类型解码（归一化值已转为 -1~+1 浮点数）
+                    c104_value = float(c104_point.value) if c104_point.value is not None else None
+                    if c104_value is not None:
+                        # 遥测点: c104 返回的值是协议层物理值
+                        # 需要通过系数换算为内部存储值，使得 real_value 正确
+                        # real_value = value * mul_coe + add_coe = c104_value
+                        # 即: value = (c104_value - add_coe) / mul_coe
                         if isinstance(point, Yc):
                             try:
-                                raw_val = int(
-                                    (float(real_val) - point.add_coe) / point.mul_coe
-                                )
+                                from src.enums.points.iec104_type import decode_iec104_value
+                                decoded_val = decode_iec104_value(c104_value, point.iec_type_id)
+                                internal_value = (decoded_val - point.add_coe) / point.mul_coe
+                                # 对于浮点解码模式，保留浮点精度；否则取整
+                                from src.enums.modbus_register import Decode
+                                info = Decode.get_info(point.decode)
+                                if info.is_float:
+                                    store_value = float(internal_value)
+                                else:
+                                    store_value = int(round(internal_value))
                                 with track_change(ChangeSource.CLIENT_READ, f"IEC104客户端同步 {point.code}", self._get_client_info()):
-                                    point.value = raw_val
+                                    point.value = store_value
                                 point.is_valid = True
                             except (ZeroDivisionError, TypeError) as e:
                                 self._log.error(f"Error decoding point {point.code}: {e}")
                                 point.is_valid = False
                         else:
                             with track_change(ChangeSource.CLIENT_READ, f"IEC104客户端同步 {point.code}", self._get_client_info()):
-                                point.value = real_val
+                                point.value = c104_value
                             point.is_valid = True
                     else:
                         point.is_valid = False

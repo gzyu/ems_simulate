@@ -63,7 +63,8 @@ class SimulationController:
                     "simulate_method": simulator.simulate_method.value,
                     "step": simulator.step,
                     "is_running": simulator.is_running,
-                    "frame_type": point.frame_type
+                    "frame_type": point.frame_type,
+                    "iec_type_id": getattr(point, "iec_type_id", None),
                 }
                 # 遥测和遥调特有字段
                 if hasattr(point, "mul_coe"):

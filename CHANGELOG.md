@@ -3,6 +3,10 @@
 1. 增加IEC61850树形结构展示
 2. IEC61850分为GOOSE、Reports、Logs、Setting Groups、Data Sets、Data Models、Files
 3. IEC61850可以按照分类查看对应模型数据
+4. IEC104协议支持所有ASDU类型（25种），不再局限于短浮点遥测和单点遥信
+5. 新增 iec104_type 模块（StrEnum + frozen dataclass 设计模式）
+6. 前端添加/编辑测点时支持选择 IEC104 ASDU 类型
+7. 测点表格显示 IEC104 类型标识列（仅 IEC104 协议设备可见）
 
 ## [2.0.2] - 2026-4-26
 1. 修复IEC61850客户端连接超时阻塞问题(底层C API是同步阻塞方案, python侧改为线程后台调用)

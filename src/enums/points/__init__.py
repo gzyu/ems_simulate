@@ -14,6 +14,19 @@ from src.enums.points.protocol_strategy import (
     IEC61850Strategy,
     get_protocol_strategy,
 )
+from src.enums.points.iec104_type import (
+    IEC104Type,
+    IEC104TypeInfo,
+    IEC104ValueType,
+    IEC104_DEFAULT_TYPE,
+    IEC104_TYPE_REGISTRY,
+    get_iec104_types_by_frame_type,
+    get_iec104_type_info,
+    get_default_iec104_type,
+    resolve_iec104_type,
+    is_double_point_type,
+    is_step_type,
+)
 
 __all__ = [
     "BasePoint",
@@ -28,4 +41,15 @@ __all__ = [
     "DLT645Strategy",
     "IEC61850Strategy",
     "get_protocol_strategy",
+    "IEC104Type",
+    "IEC104TypeInfo",
+    "IEC104ValueType",
+    "IEC104_DEFAULT_TYPE",
+    "IEC104_TYPE_REGISTRY",
+    "get_iec104_types_by_frame_type",
+    "get_iec104_type_info",
+    "get_default_iec104_type",
+    "resolve_iec104_type",
+    "is_double_point_type",
+    "is_step_type",
 ]

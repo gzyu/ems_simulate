@@ -28,6 +28,7 @@ class PointYcDict(TypedDict):
     iec_common_address: Optional[int]
     iec_cot: Optional[int]
     iec_quality: Optional[int]
+    iec_type_id: Optional[str]
     enable: bool
 
 
@@ -83,6 +84,9 @@ class PointYc(Base):
     )
     iec_quality: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True, server_default="0", comment="IEC104品质描述符"
+    )
+    iec_type_id: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True, comment="IEC104类型标识(如M_ME_NC_1)"
     )
 
     enable: Mapped[bool] = mapped_column(

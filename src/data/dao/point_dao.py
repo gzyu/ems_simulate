@@ -287,6 +287,10 @@ class PointDao:
                                     result.mul_coe = float(metadata["mul_coe"])
                                 if "add_coe" in metadata and str(metadata["add_coe"]) != "":
                                     result.add_coe = float(metadata["add_coe"])
+
+                            # IEC104 类型标识
+                            if "iec_type_id" in metadata:
+                                result.iec_type_id = metadata["iec_type_id"] if metadata["iec_type_id"] else None
                             
                             return True
                     return False
@@ -343,6 +347,7 @@ class PointDao:
                         add_coe=add_coe,
                         max_limit=point_data.get("max_limit", calc_max),
                         min_limit=point_data.get("min_limit", calc_min),
+                        iec_type_id=point_data.get("iec_type_id"),
                         enable=True
                     )
                     session.add(point)
@@ -367,6 +372,7 @@ class PointDao:
                         func_code=point_data.get("func_code", 2),
                         decode_code=point_data.get("decode_code", "0x10"),
                         bit=point_data.get("bit"),
+                        iec_type_id=point_data.get("iec_type_id"),
                         enable=True
                     )
                     session.add(point)
@@ -391,6 +397,7 @@ class PointDao:
                         func_code=point_data.get("func_code", 5),
                         decode_code=point_data.get("decode_code", "0x10"),
                         bit=point_data.get("bit"),
+                        iec_type_id=point_data.get("iec_type_id"),
                         enable=True
                     )
                     session.add(point)
@@ -423,6 +430,7 @@ class PointDao:
                         add_coe=add_coe,
                         max_limit=point_data.get("max_limit", calc_max),
                         min_limit=point_data.get("min_limit", calc_min),
+                        iec_type_id=point_data.get("iec_type_id"),
                         enable=True
                     )
                     session.add(point)
@@ -483,6 +491,7 @@ class PointDao:
                                 add_coe=add_coe,
                                 max_limit=point_data.get("max_limit", calc_max),
                                 min_limit=point_data.get("min_limit", calc_min),
+                                iec_type_id=point_data.get("iec_type_id"),
                                 enable=True
                             )
                         elif frame_type == 1:  # 遥信
@@ -495,6 +504,7 @@ class PointDao:
                                 func_code=point_data.get("func_code", 2),
                                 decode_code=point_data.get("decode_code", "0x10"),
                                 bit=point_data.get("bit"),
+                                iec_type_id=point_data.get("iec_type_id"),
                                 enable=True
                             )
                         elif frame_type == 2:  # 遥控
@@ -507,6 +517,7 @@ class PointDao:
                                 func_code=point_data.get("func_code", 5),
                                 decode_code=point_data.get("decode_code", "0x10"),
                                 bit=point_data.get("bit"),
+                                iec_type_id=point_data.get("iec_type_id"),
                                 enable=True
                             )
                         elif frame_type == 3:  # 遥调
@@ -527,6 +538,7 @@ class PointDao:
                                 add_coe=add_coe,
                                 max_limit=point_data.get("max_limit", calc_max),
                                 min_limit=point_data.get("min_limit", calc_min),
+                                iec_type_id=point_data.get("iec_type_id"),
                                 enable=True
                             )
                         else:

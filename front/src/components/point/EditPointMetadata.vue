@@ -91,6 +91,21 @@
           </el-form-item>
         </el-col>
       </el-row>
+      <!-- IEC104 类型选择器 -->
+      <el-row :gutter="20" v-if="isIec104">
+        <el-col :span="12">
+          <el-form-item label="IEC104类型" class="form-item">
+            <el-select v-model="metadataForm.iec_type_id" placeholder="选择ASDU类型" style="width: 100%" clearable>
+              <el-option
+                v-for="t in availableIec104Types"
+                :key="t.type_id"
+                :label="`${t.label} (${t.type_id})`"
+                :value="t.type_id"
+              />
+            </el-select>
+          </el-form-item>
+        </el-col>
+      </el-row>
       <div class="button-group">
         <el-button type="primary" @click="saveMetadata">保存属性</el-button>
         <el-button @click="loadPointInfo">刷新</el-button>
@@ -103,17 +118,25 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { getPointInfo, editPointMetadata } from '@/api/pointApi';
+import { IEC104_TYPES_BY_FRAME_TYPE } from '@/types/point';
 
 interface Props {
   deviceName: string;
   pointCode: string;
   active?: boolean;
+  protocolType?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   active: true
 });
 const emit = defineEmits(['update-success']);
+
+// 判断是否为 IEC104 协议
+const isIec104 = computed(() => {
+  const pt = props.protocolType || '';
+  return pt === 'Iec104Client' || pt === 'Iec104Server';
+});
 
 const metadataForm = reactive({
   name: '',
@@ -124,11 +147,17 @@ const metadataForm = reactive({
   mul_coe: 1.0,
   add_coe: 0.0,
   frame_type: 0,
-  bit: null as number | null
+  bit: null as number | null,
+  iec_type_id: null as string | null,
 });
 
 const isYcOrYt = computed(() => [0, 3].includes(metadataForm.frame_type));
 const isYxOrYk = computed(() => [1, 2].includes(metadataForm.frame_type));
+
+// 获取当前帧类型可用的 IEC104 类型列表
+const availableIec104Types = computed(() => {
+  return IEC104_TYPES_BY_FRAME_TYPE[metadataForm.frame_type] || [];
+});
 
 // 加载点信息
 const loadPointInfo = async () => {
@@ -144,6 +173,7 @@ const loadPointInfo = async () => {
       metadataForm.add_coe = info.add_coe ?? 0.0;
       metadataForm.frame_type = info.frame_type ?? 0;
       metadataForm.bit = info.bit ?? null;
+      metadataForm.iec_type_id = info.iec_type_id ?? null;
     }
   } catch (error) {
     console.error('加载点信息失败:', error);

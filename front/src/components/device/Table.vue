@@ -53,6 +53,7 @@
                   :deviceName="deviceName"
                   :pointCode="scope.row['测点编码']"
                   :active="activeName === '测点编辑'"
+                  :protocolType="String(protocolType)"
                   @update-success="(newCode) => handleMetadataUpdate(newCode, scope.row['测点编码'])"
                 />
               </el-tab-pane>
@@ -293,6 +294,11 @@ const readingPoints = reactive<Record<string, boolean>>({});
 const deletingPoints = reactive<Record<string, boolean>>({});
 const showHexAddress = ref(false);
 
+const isIec104 = computed(() => {
+  const t = props.protocolType;
+  return typeof t === 'string' && (t === 'Iec104Server' || t === 'Iec104Client');
+});
+
 const hiddenColumns = computed(() => {
   // 始终隐藏16进制地址列（已合并到地址列）
   const hidden = ['16进制地址', '地址'];
@@ -300,6 +306,11 @@ const hiddenColumns = computed(() => {
   // 非Modbus协议，隐藏相关专有列
   if (!isModbus.value) {
     hidden.push('位', '功能码', '解析码');
+  }
+  
+  // 非IEC104协议，隐藏IEC104类型列
+  if (!isIec104.value) {
+    hidden.push('IEC104类型');
   }
   
   // 非客户端设备，隐藏状态列
@@ -326,6 +337,7 @@ const columnWidthMap: Record<string, number> = {
   '解析码': 90,
   '帧类型': 80,
   // IEC104 协议特有列
+  'IEC104类型': 140,
   '类型标识': 100,
   '传送原因': 100,
   '公共地址': 100,

@@ -33,6 +33,7 @@ class BasePoint:
         value: int = 0,
         frame_type: int = 0,
         decode: str = "0x41",
+        iec_type_id: Optional[str] = None,
     ) -> None:
         self._is_updating = False
         self._rtu_addr: int = int(rtu_addr)
@@ -54,6 +55,7 @@ class BasePoint:
         self._is_simulated: bool = False
         self._is_plan: bool = False
         self._decode = decode
+        self._iec_type_id: Optional[str] = iec_type_id
 
         self.is_send_signal = False
         self.related_point: Optional["BasePoint"] = None
@@ -189,6 +191,15 @@ class BasePoint:
     @frame_type.setter
     def frame_type(self, frame_type):
         self._frame_type = frame_type
+
+    @property
+    def iec_type_id(self) -> Optional[str]:
+        """IEC104 ASDU 类型标识（如 M_ME_NC_1）"""
+        return self._iec_type_id
+
+    @iec_type_id.setter
+    def iec_type_id(self, type_id: Optional[str]):
+        self._iec_type_id = type_id
 
     @property
     def is_simulated(self) -> bool:

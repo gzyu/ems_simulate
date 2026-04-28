@@ -113,7 +113,7 @@ const props = defineProps<{
   isCollapse: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: "node-click", data: any): void;
   (e: "group-command", command: string, data: any): void;
   (e: "edit-device", data: any): void;

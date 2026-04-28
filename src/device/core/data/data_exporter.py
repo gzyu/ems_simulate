@@ -30,6 +30,7 @@ class DataExporter:
             "乘法系数",
             "加法系数",
             "帧类型",
+            "IEC104类型",
             "状态",
         ]
 
@@ -142,6 +143,13 @@ class DataExporter:
             reg_val = str(point.hex_value)
             real_val = str(point.real_value)
         
+        # 获取 IEC104 类型标签
+        iec_type_label = ""
+        if hasattr(point, "iec_type_id") and point.iec_type_id:
+            from src.enums.points.iec104_type import get_iec104_type_info
+            info = get_iec104_type_info(point.iec_type_id)
+            iec_type_label = info.label if info else point.iec_type_id
+
         return [
             str(point.address),
             str(point.hex_address),
@@ -155,6 +163,7 @@ class DataExporter:
             str(point.mul_coe),
             str(point.add_coe),
             str(frame_type_dict.get(point.frame_type, "")),
+            iec_type_label,
             status,
         ]
 
@@ -178,6 +187,13 @@ class DataExporter:
             reg_val = str(point.hex_value)
             real_val = str(int(point.value))
 
+        # 获取 IEC104 类型标签
+        iec_type_label = ""
+        if hasattr(point, "iec_type_id") and point.iec_type_id:
+            from src.enums.points.iec104_type import get_iec104_type_info
+            info = get_iec104_type_info(point.iec_type_id)
+            iec_type_label = info.label if info else point.iec_type_id
+
         return [
             str(point.address),
             str(point.hex_address),
@@ -191,6 +207,7 @@ class DataExporter:
             "1.0",
             "0",
             str(frame_type_dict.get(point.frame_type, "")),
+            iec_type_label,
             status,
         ]
 

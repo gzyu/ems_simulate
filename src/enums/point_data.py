@@ -56,6 +56,24 @@ from src.enums.points.protocol_config import (
     get_default_protocol_config,
     create_protocol_config,
 )
+from src.enums.points.iec104_type import (
+    IEC104Type,
+    IEC104TypeInfo,
+    IEC104ValueType,
+    IEC104_DEFAULT_TYPE,
+    IEC104_TYPE_REGISTRY,
+    get_iec104_types_by_frame_type,
+    get_iec104_type_info,
+    get_default_iec104_type,
+    resolve_iec104_type,
+    is_double_point_type,
+    is_step_type,
+    is_normalized_type,
+    is_scaled_type,
+    is_short_float_type,
+    encode_iec104_value,
+    decode_iec104_value,
+)
 
 
 __all__ = [
@@ -79,4 +97,20 @@ __all__ = [
     "get_default_protocol_config",
     "create_protocol_config",
     "decimal_to_hex_formatted",
+    "IEC104Type",
+    "IEC104TypeInfo",
+    "IEC104ValueType",
+    "IEC104_DEFAULT_TYPE",
+    "IEC104_TYPE_REGISTRY",
+    "get_iec104_types_by_frame_type",
+    "get_iec104_type_info",
+    "get_default_iec104_type",
+    "resolve_iec104_type",
+    "is_double_point_type",
+    "is_step_type",
+    "is_normalized_type",
+    "is_scaled_type",
+    "is_short_float_type",
+    "encode_iec104_value",
+    "decode_iec104_value",
 ]

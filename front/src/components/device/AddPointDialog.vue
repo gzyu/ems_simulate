@@ -132,6 +132,18 @@
         </el-form-item>
       </template>
 
+      <!-- IEC104 类型选择器（仅 IEC104 协议时显示） -->
+      <el-form-item v-if="isIec104" label="IEC104类型" prop="iec_type_id">
+        <el-select v-model="formData.iec_type_id" placeholder="选择ASDU类型" style="width: 100%" clearable>
+          <el-option
+            v-for="t in availableIec104Types"
+            :key="t.type_id"
+            :label="`${t.label} (${t.type_id})`"
+            :value="t.type_id"
+          />
+        </el-select>
+      </el-form-item>
+
       <!-- 系数配置，仅遥测和遥调显示 -->
       <template v-if="[0, 3].includes(formData.frame_type)">
         <el-form-item label="乘法系数" prop="mul_coe">
@@ -157,6 +169,7 @@ import { ref, reactive, watch, computed } from 'vue';
 import type { FormInstance, FormRules } from 'element-plus';
 import { ElMessage } from 'element-plus';
 import { addPoint, addPointsBatch, type PointCreateData } from '@/api/pointApi';
+import { IEC104_TYPES_BY_FRAME_TYPE, getDefaultIec104Type } from '@/types/point';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -195,6 +208,14 @@ const typeNameMap: Record<number, { code: string; name: string }> = {
   3: { code: 'YT_', name: '遥调' },
 };
 
+// IEC104 各测点类型的起始地址偏移（与后端 IEC104Strategy 一致）
+const iec104AddressOffset: Record<number, number> = {
+  0: 16385,      // 遥测 YC
+  1: 1,          // 遥信 YX
+  2: 24577,      // 遥控 YK
+  3: 25089,      // 遥调 YT
+};
+
 const codePrefix = ref('YC_');
 const namePrefix = ref('遥测');
 
@@ -209,9 +230,15 @@ const formData = reactive<PointCreateData>({
   bit: null,
   mul_coe: 1.0,
   add_coe: 0.0,
+  iec_type_id: null,
 });
 
-// 监听测点类型变化，自动更新前缀
+// 获取当前帧类型可用的 IEC104 类型列表
+const availableIec104Types = computed(() => {
+  return IEC104_TYPES_BY_FRAME_TYPE[formData.frame_type] || [];
+});
+
+// 监听测点类型变化，自动更新前缀和地址
 watch(() => formData.frame_type, (newType) => {
   const prefixes = typeNameMap[newType] || { code: 'POINT_', name: '测点' };
   codePrefix.value = prefixes.code;
@@ -222,6 +249,12 @@ watch(() => formData.frame_type, (newType) => {
     formData.func_code = 6;
   } else {
     formData.func_code = 3;
+  }
+
+  // IEC104 协议下自动设置默认类型和起始地址
+  if (isIec104.value) {
+    formData.iec_type_id = getDefaultIec104Type(newType);
+    formData.reg_addr = String(iec104AddressOffset[newType] ?? 0);
   }
 });
 
@@ -276,6 +309,13 @@ const rules = computed<FormRules>(() => ({
 watch(() => props.modelValue, (val) => {
   if (val && props.currentSlaveId) {
     formData.rtu_addr = props.currentSlaveId;
+  }
+  // IEC104 协议下，打开时自动设置默认类型和起始地址
+  if (val && isIec104.value) {
+    if (!formData.iec_type_id) {
+      formData.iec_type_id = getDefaultIec104Type(formData.frame_type);
+    }
+    formData.reg_addr = String(iec104AddressOffset[formData.frame_type] ?? 0);
   }
 });
 

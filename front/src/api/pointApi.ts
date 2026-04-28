@@ -14,6 +14,7 @@ export interface PointCreateData {
     bit?: number | null;
     mul_coe: number;
     add_coe: number;
+    iec_type_id?: string | null;
 }
 
 export interface ChangeRecord {

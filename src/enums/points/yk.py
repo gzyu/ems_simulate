@@ -26,6 +26,7 @@ class Yk(BasePoint):
         decode: str = "0x20",
         related_yx_address: Optional[int] = None,
         command_type: int = 0,
+        iec_type_id: Optional[str] = None,
     ):
         super().__init__(
             rtu_addr=rtu_addr,
@@ -36,6 +37,7 @@ class Yk(BasePoint):
             value=value,
             frame_type=frame_type,
             decode=decode,
+            iec_type_id=iec_type_id,
         )
 
         self._bit: Optional[int] = int(bit) if bit is not None and str(bit) != "" else None

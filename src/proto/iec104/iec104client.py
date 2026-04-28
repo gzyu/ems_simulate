@@ -117,7 +117,7 @@ class IEC104Client:
         读取指定IOA的监控点值
         :param io_address: 信息对象地址(IOA)
         :param frame_type: 帧类型，0-遥测，1-遥信，2-遥控，3-遥调
-        :return: 监控点值，失败返回None
+        :return: 监控点值（Python float），失败返回None
         """
         if not self.is_connected:
             log.error("未连接到服务器，无法读取数据")
@@ -126,25 +126,22 @@ class IEC104Client:
         try:
             point = self.station.get_point(io_address=io_address)
             if point:
-                if frame_type == 0:
-                    return float(point.value)
-                elif frame_type == 1:
-                    return bool(point.value)
-                elif frame_type == 2:
-                    return bool(point.value)
-                elif frame_type == 3:
-                    return float(point.value)
-            print(point.value)
+                # c104 库对不同类型返回不同的值对象：
+                # - NormalizedFloat: float() 返回 -1~+1 范围的浮点数
+                # - Int16: float() 返回标度值
+                # - float: 直接返回浮点数
+                # 统一使用 float() 转换，c104 库已内部完成解码
+                return float(point.value)
             return None
         except Exception as e:
             log.error(f"读取监控点值失败: {e}")
             return None
 
-    def write_point(self, io_address: int, value: float, frame_type: int = 0) -> bool:
+    def write_point(self, io_address: int, value, frame_type: int = 0) -> bool:
         """
         写入指定IOA的监控点值
         :param io_address: 信息对象地址(IOA)
-        :param value: 要写入的值
+        :param value: 要写入的值（c104 原生类型，如 NormalizedFloat、Int16、float、bool）
         :param frame_type: 帧类型，0-遥测，1-遥信，2-遥控，3-遥调
         :return: 是否写入成功
         """
@@ -159,14 +156,7 @@ class IEC104Client:
         try:
             point = self.station.get_point(io_address=io_address)
             if point:
-                if frame_type == 0:
-                    point.value = float(value)
-                elif frame_type == 1:
-                    point.value = bool(value)
-                elif frame_type == 2:
-                    point.value = bool(value)
-                elif frame_type == 3:
-                    point.value = float(value)
+                point.value = value
                 return True
             return False
         except Exception as e:

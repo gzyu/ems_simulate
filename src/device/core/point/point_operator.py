@@ -262,6 +262,14 @@ class PointOperator:
                 if old_add_coe != float(metadata["add_coe"]):
                     need_resync = True
 
+        # 处理 IEC104 类型标识修改
+        if "iec_type_id" in metadata:
+            old_iec_type_id = getattr(point, 'iec_type_id', None)
+            new_iec_type_id = metadata["iec_type_id"] if metadata["iec_type_id"] else None
+            if old_iec_type_id != new_iec_type_id:
+                point.iec_type_id = new_iec_type_id
+                need_resync = True  # IEC104 类型变更需要重新同步
+
         # 处理 code 修改
         if "code" in metadata and metadata["code"] and metadata["code"] != point_code:
             new_code = metadata["code"]
@@ -269,18 +277,38 @@ class PointOperator:
             self._pm.code_map[new_code] = self._pm.code_map.pop(point_code)
             point.code = new_code
 
-        # 3. 如果配置发生变更，并且点位支持写入（遥控/遥调），重新将当前值写入协议处理器
-        if need_resync and current_real_value is not None and self._handler and isinstance(point, (Yk, Yt)):
-            try:
-                # 使用新的配置重新计算并写入
-                if point.set_real_value(current_real_value):
-                    result = self._handler.write_value(point, point.value)
-                    if result:
-                        self._log.info(f"测点 {point.code} 元数据更新后已重新同步值到协议处理器")
-                    else:
-                        self._log.warning(f"重新同步测点 {point.code} 值失败: 编辑完配置同步失败")
-            except Exception as e:
-                self._log.warning(f"重新同步测点 {point.code} 值失败: {e}")
+        # 3. 如果配置发生变更，重新将当前值写入协议处理器
+        if need_resync and self._handler:
+            # IEC104 协议下 iec_type_id 变更需要重新同步（影响编码方式）
+            protocol_type = self._device.protocol_type
+            if protocol_type in [ProtocolType.Iec104Server, ProtocolType.Iec104Client]:
+                try:
+                    if isinstance(point, (Yc, Yt)) and current_real_value is not None:
+                        if point.set_real_value(current_real_value):
+                            result = self._handler.write_value(point, point.value)
+                            if result:
+                                self._log.info(f"测点 {point.code} 元数据更新后已重新同步值到 IEC104 协议处理器")
+                            else:
+                                self._log.warning(f"重新同步测点 {point.code} 值失败")
+                    elif isinstance(point, (Yx, Yk)):
+                        result = self._handler.write_value(point, point.value)
+                        if result:
+                            self._log.info(f"测点 {point.code} 元数据更新后已重新同步值到 IEC104 协议处理器")
+                        else:
+                            self._log.warning(f"重新同步测点 {point.code} 值失败")
+                except Exception as e:
+                    self._log.warning(f"重新同步测点 {point.code} 值失败: {e}")
+            elif current_real_value is not None and isinstance(point, (Yk, Yt)):
+                try:
+                    # 使用新的配置重新计算并写入
+                    if point.set_real_value(current_real_value):
+                        result = self._handler.write_value(point, point.value)
+                        if result:
+                            self._log.info(f"测点 {point.code} 元数据更新后已重新同步值到协议处理器")
+                        else:
+                            self._log.warning(f"重新同步测点 {point.code} 值失败: 编辑完配置同步失败")
+                except Exception as e:
+                    self._log.warning(f"重新同步测点 {point.code} 值失败: {e}")
                 
         # 4. 更新数据库
         try:

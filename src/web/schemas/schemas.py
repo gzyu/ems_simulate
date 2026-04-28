@@ -200,6 +200,7 @@ class PointCreateRequest(BaseModel):
     bit: Optional[int] = Field(None, description="位偏移")
     mul_coe: float = Field(1.0, description="乘系数（仅遥测/遥调）")
     add_coe: float = Field(0.0, description="加系数（仅遥测/遥调）")
+    iec_type_id: Optional[str] = Field(None, description="IEC104 ASDU类型标识（如M_ME_NC_1）", max_length=16)
 
 
 class PointDeleteRequest(BaseModel):
@@ -243,6 +244,7 @@ class PointItem(BaseModel):
     bit: Optional[int] = Field(None, description="位偏移")
     mul_coe: float = Field(1.0, description="乘系数（仅遥测/遥调）")
     add_coe: float = Field(0.0, description="加系数（仅遥测/遥调）")
+    iec_type_id: Optional[str] = Field(None, description="IEC104 ASDU类型标识（如M_ME_NC_1）", max_length=16)
 
 
 class PointsBatchCreateRequest(BaseModel):

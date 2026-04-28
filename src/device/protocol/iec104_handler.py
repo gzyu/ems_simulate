@@ -10,7 +10,29 @@ from src.device.protocol.base_handler import ServerHandler, ClientHandler
 from src.enums.points.base_point import BasePoint
 from src.enums.point_data import Yc, Yx, Yt, Yk
 from src.enums.points.change_tracker import ChangeSource, track_change
+from src.enums.points.iec104_type import (
+    IEC104Type,
+    resolve_iec104_type,
+    is_double_point_type,
+    is_step_type,
+    encode_iec104_value,
+    decode_iec104_value,
+)
 from src.config.config import Config
+
+
+def _resolve_c104_type(point: BasePoint) -> c104.Type:
+    """根据测点的 iec_type_id 解析 c104.Type 常量
+
+    Args:
+        point: 测点对象
+
+    Returns:
+        c104.Type 枚举值
+    """
+    iec_type = resolve_iec104_type(point.iec_type_id, point.frame_type)
+    # c104 库使用 TypeID 字符串作为属性名映射到 c104.Type
+    return getattr(c104.Type, iec_type.value)
 
 
 class IEC104ServerHandler(ServerHandler):
@@ -74,11 +96,34 @@ class IEC104ServerHandler(ServerHandler):
         return 0
 
     def write_value(self, point: BasePoint, value: Any) -> bool:
-        """写入测点值"""
+        """写入测点值
+        
+        根据 IEC104 ASDU 类型对值进行编码后写入 c104 点：
+        - 归一化类型 (M_ME_NA_1): 值需在 -1~+1 范围，使用 c104.NormalizedFloat
+        - 标度化类型 (M_ME_NB_1): 值取整，使用 c104.Int16
+        - 短浮点类型 (M_ME_NC_1): 保持 float
+        """
         if self._server:
+            # 获取要写入的物理值
+            if isinstance(point, (Yc, Yt)):
+                real_value = point.real_value
+            elif isinstance(point, (Yx, Yk)):
+                # 遥信/遥控: 直接用 bool/int
+                self._server.set_point_value(
+                    io_address=point.address,
+                    value=bool(point.value),
+                    frame_type=point.frame_type,
+                )
+                return True
+            else:
+                real_value = value
+            
+            # 根据 IEC104 类型编码值（返回 c104 原生类型）
+            encoded_value = encode_iec104_value(real_value, point.iec_type_id)
+            
             self._server.set_point_value(
                 io_address=point.address,
-                value=value,
+                value=encoded_value,
                 frame_type=point.frame_type,
             )
             return True
@@ -99,27 +144,18 @@ class IEC104ServerHandler(ServerHandler):
 
         for point in points:
             frame_type = point.frame_type
-            if frame_type == 0:  # 遥测
+            point_type = _resolve_c104_type(point)
+
+            if frame_type in (0, 1):  # 遥测/遥信 → 监控点
                 self._server.add_monitoring_point(
                     io_address=point.address,
-                    point_type=c104.Type.M_ME_NC_1,
+                    point_type=point_type,
                     report_ms=1000,  # 自动上报间隔 1 秒
                 )
-            elif frame_type == 1:  # 遥信
-                self._server.add_monitoring_point(
-                    io_address=point.address,
-                    point_type=c104.Type.M_SP_NA_1,
-                    report_ms=1000,  # 自动上报间隔 1 秒
-                )
-            elif frame_type == 2:  # 遥控
+            elif frame_type in (2, 3):  # 遥控/遥调 → 命令点
                 self._server.add_command_point(
                     io_address=point.address,
-                    point_type=c104.Type.C_SC_NA_1,
-                )
-            elif frame_type == 3:  # 遥调
-                self._server.add_command_point(
-                    io_address=point.address,
-                    point_type=c104.Type.C_SE_NC_1,
+                    point_type=point_type,
                 )
 
     def get_value_by_address(
@@ -242,50 +278,76 @@ class IEC104ClientHandler(ClientHandler):
         return True
 
     def read_value(self, point: BasePoint) -> Any:
-        """读取测点值"""
+        """读取测点值
+        
+        读取 c104 点的值，c104 库已内部完成类型解码：
+        - 归一化类型: float(point.value) 返回 -1~+1 范围的浮点数
+        - 标度化类型: float(point.value) 返回标度值
+        - 短浮点类型: float(point.value) 返回浮点数
+        
+        对于遥测点(Yc)，c104 返回的值即为协议物理值，
+        需要通过系数换算为内部存储值，使得 real_value 正确。
+        """
         # 检查客户端是否已连接（使用 is_running 属性实时检测）
         if not self._client or not self.is_running:
             self._log.error("IEC104 客户端未连接")
             return None
         
-        # IEC104 客户端通过 read_point 获取物理值
-        real_val = self._client.read_point(
+        # IEC104 客户端通过 read_point 获取值
+        # c104 库已内部完成类型解码，float() 即可得到物理值
+        c104_value = self._client.read_point(
             io_address=point.address, frame_type=point.frame_type
         )
-        if real_val is None:
+        if c104_value is None:
             self._log.error("IEC104 客户端读取测点值失败")
             return None
         
-        # 如果是遥测点，需要根据系数反向换算回寄存器/原始值
-        # 这样 store 进 point.value 后，系统显示的 real_value 才会正确
+        # 对于遥测点，c104 返回的值是协议层物理值
+        # 需要通过 mul_coe/add_coe 反向换算为内部存储值
+        # 使得: real_value = value * mul_coe + add_coe = c104_value
+        # 即: value = (c104_value - add_coe) / mul_coe
         if isinstance(point, Yc):
+            decoded_val = decode_iec104_value(c104_value, point.iec_type_id)
             try:
-                return int((real_val - point.add_coe) / point.mul_coe)
+                # 计算内部存储值，使得 real_value = value * mul_coe + add_coe = decoded_val
+                internal_value = (decoded_val - point.add_coe) / point.mul_coe
+                # 对于浮点解码模式，保留浮点精度；否则取整
+                from src.enums.modbus_register import Decode
+                info = Decode.get_info(point.decode)
+                if info.is_float:
+                    return float(internal_value)
+                return int(round(internal_value))
             except (ZeroDivisionError, TypeError):
                 self._log.error("IEC104 客户端读取测点值失败，系数计算失败")
                 return None
-        return real_val
+        return c104_value
 
     def write_value(self, point: BasePoint, value: Any) -> bool:
-        """写入测点值（发送命令）"""
+        """写入测点值（发送命令）
+        
+        根据 IEC104 ASDU 类型对值进行编码后写入：
+        - 归一化类型: 使用 c104.NormalizedFloat
+        - 标度化类型: 使用 c104.Int16
+        - 短浮点类型: 直接 float
+        """
         if not self._client or not self.is_running:
             return False
 
         # 客户端写入：将内部原始值换算为物理值发送给外部设备
-        real_to_send = value
-        
         try:
             if isinstance(point, (Yc, Yt)):
                 real_to_send = value * point.mul_coe + point.add_coe
+                # 根据 IEC104 类型编码值（返回 c104 原生类型）
+                encoded_value = encode_iec104_value(real_to_send, point.iec_type_id)
                 return self._client.write_point(
                     io_address=point.address,
-                    value=float(real_to_send),
+                    value=encoded_value,
                     frame_type=point.frame_type
                 )
             elif isinstance(point, (Yx, Yk)):
                 return self._client.write_point(
                     io_address=point.address,
-                    value=bool(real_to_send),
+                    value=bool(value),
                     frame_type=point.frame_type
                 )
         except Exception as e:
@@ -308,27 +370,11 @@ class IEC104ClientHandler(ClientHandler):
             return
 
         for point in points:
-            frame_type = point.frame_type
-            if frame_type == 0:  # 遥测
-                self._client.add_point(
-                    io_address=point.address,
-                    point_type=c104.Type.M_ME_NC_1,
-                )
-            elif frame_type == 1:  # 遥信
-                self._client.add_point(
-                    io_address=point.address,
-                    point_type=c104.Type.M_SP_NA_1,
-                )
-            elif frame_type == 2:  # 遥控
-                self._client.add_point(
-                    io_address=point.address,
-                    point_type=c104.Type.C_SC_NA_1,
-                )
-            elif frame_type == 3:  # 遥调
-                self._client.add_point(
-                    io_address=point.address,
-                    point_type=c104.Type.C_SE_NC_1,
-                )
+            point_type = _resolve_c104_type(point)
+            self._client.add_point(
+                io_address=point.address,
+                point_type=point_type,
+            )
 
     @property
     def client(self):

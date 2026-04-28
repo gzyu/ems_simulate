@@ -111,7 +111,8 @@ class IEC104Server:
         """
         获取指定IOA的监控点值
         :param io_address: 信息对象地址(IOA)
-        :return: 监控点值
+        :param frame_type: 帧类型
+        :return: 监控点值（Python float）
         """
         try:
             # 如果是遥测或者遥信
@@ -120,18 +121,16 @@ class IEC104Server:
                     if point.io_address == io_address:
                         point = self.station.get_point(io_address=io_address)
                         if point:
-                            if frame_type == 0:
-                                return float(point.value)
-                            elif frame_type == 1:
-                                return bool(point.value)
-            elif frame_type == 2 or frame_type == 3:  # 遥测或者遥调
+                            # c104 库对不同类型返回不同值对象，float() 统一转换
+                            return float(point.value)
+            elif frame_type == 2 or frame_type == 3:  # 遥控或者遥调
                 for command in self.commands:
                     if command.io_address == io_address:
                         command = self.station.get_point(io_address=io_address)
                         if command:
                             if frame_type == 2:
                                 return bool(command.value)
-                            elif frame_type == 3:
+                            else:
                                 return float(command.value)
             return 0
         except Exception as e:
@@ -139,12 +138,12 @@ class IEC104Server:
             raise e
 
     def set_point_value(
-        self, io_address: int, value: float, frame_type: int = 0
+        self, io_address: int, value, frame_type: int = 0
     ) -> None:
         """
         设置指定IOA的监控点值
         :param io_address: 信息对象地址(IOA)
-        :param value: 要设置的值
+        :param value: 要设置的值（c104 原生类型，如 NormalizedFloat、Int16、float、bool）
         :param frame_type: 帧类型，默认遥测
         """
         try:
@@ -154,19 +153,13 @@ class IEC104Server:
                     if point.io_address == io_address:
                         point = self.station.get_point(io_address=io_address)
                         if point:
-                            if frame_type == 0:
-                                point.value = float(value)
-                            elif frame_type == 1:
-                                point.value = bool(value)
+                            point.value = value
             elif frame_type == 2 or frame_type == 3:  # 遥控或者遥调
                 for command in self.commands:
                     if command.io_address == io_address:
                         command = self.station.get_point(io_address=io_address)
                         if command:
-                            if frame_type == 2:
-                                command.value = bool(value)
-                            elif frame_type == 3:
-                                command.value = float(value)
+                            command.value = value
         except Exception as e:
             log.info(f"设置监控点值失败: {e}")
             raise e
