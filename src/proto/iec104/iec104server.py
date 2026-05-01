@@ -164,6 +164,56 @@ class IEC104Server:
             log.info(f"设置监控点值失败: {e}")
             raise e
 
+    def set_point_quality(
+        self, io_address: int, quality: int, frame_type: int = 0
+    ) -> None:
+        """
+        设置指定IOA的品质描述符
+        :param io_address: 信息对象地址(IOA)
+        :param quality: 品质描述符整数值 (位标志: OV=0x01 BL=0x02 SB=0x04 NT=0x08 IV=0x10)
+        :param frame_type: 帧类型，默认遥测
+        """
+        try:
+            if frame_type == 0 or frame_type == 1:
+                for point in self.points:
+                    if point.io_address == io_address:
+                        point = self.station.get_point(io_address=io_address)
+                        if point and hasattr(point, 'quality'):
+                            point.quality = quality
+            elif frame_type == 2 or frame_type == 3:
+                for command in self.commands:
+                    if command.io_address == io_address:
+                        command = self.station.get_point(io_address=io_address)
+                        if command and hasattr(command, 'quality'):
+                            command.quality = quality
+        except Exception as e:
+            log.info(f"设置监控点品质失败: {e}")
+
+    def get_point_quality(self, io_address: int, frame_type: int = 0) -> int:
+        """
+        获取指定IOA的品质描述符
+        :param io_address: 信息对象地址(IOA)
+        :param frame_type: 帧类型
+        :return: 品质描述符整数值
+        """
+        try:
+            if frame_type == 0 or frame_type == 1:
+                for point in self.points:
+                    if point.io_address == io_address:
+                        point = self.station.get_point(io_address=io_address)
+                        if point and hasattr(point, 'quality'):
+                            return int(point.quality)
+            elif frame_type == 2 or frame_type == 3:
+                for command in self.commands:
+                    if command.io_address == io_address:
+                        command = self.station.get_point(io_address=io_address)
+                        if command and hasattr(command, 'quality'):
+                            return int(command.quality)
+            return 0
+        except Exception as e:
+            log.info(f"获取监控点品质失败: {e}")
+            return 0
+
     def start(self):
         """启动IEC 104服务器"""
         self.server.start()

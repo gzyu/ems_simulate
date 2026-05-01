@@ -18,6 +18,11 @@ from src.enums.points.iec104_type import (
     encode_iec104_value,
     decode_iec104_value,
 )
+from src.enums.points.iec104_quality import (
+    IEC104QualityDescriptor,
+    encode_quality_for_c104,
+    supports_quality,
+)
 from src.config.config import Config
 
 
@@ -102,6 +107,8 @@ class IEC104ServerHandler(ServerHandler):
         - 归一化类型 (M_ME_NA_1): 值需在 -1~+1 范围，使用 c104.NormalizedFloat
         - 标度化类型 (M_ME_NB_1): 值取整，使用 c104.Int16
         - 短浮点类型 (M_ME_NC_1): 保持 float
+        
+        同时写入品质描述符（OV/BL/SB/NT/IV）。
         """
         if self._server:
             # 获取要写入的物理值
@@ -114,6 +121,14 @@ class IEC104ServerHandler(ServerHandler):
                     value=bool(point.value),
                     frame_type=point.frame_type,
                 )
+                # 写入品质描述符
+                if supports_quality(point.frame_type):
+                    quality_int = encode_quality_for_c104(point.iec_quality, point.frame_type)
+                    self._server.set_point_quality(
+                        io_address=point.address,
+                        quality=quality_int,
+                        frame_type=point.frame_type,
+                    )
                 return True
             else:
                 real_value = value
@@ -126,6 +141,14 @@ class IEC104ServerHandler(ServerHandler):
                 value=encoded_value,
                 frame_type=point.frame_type,
             )
+            # 写入品质描述符
+            if supports_quality(point.frame_type):
+                quality_int = encode_quality_for_c104(point.iec_quality, point.frame_type)
+                self._server.set_point_quality(
+                    io_address=point.address,
+                    quality=quality_int,
+                    frame_type=point.frame_type,
+                )
             return True
         return False
 

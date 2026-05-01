@@ -270,6 +270,13 @@ class PointOperator:
                 point.iec_type_id = new_iec_type_id
                 need_resync = True  # IEC104 类型变更需要重新同步
 
+        # 处理 IEC104 品质描述符修改
+        if "iec_quality" in metadata:
+            new_quality = metadata["iec_quality"]
+            if new_quality is not None:
+                point.iec_quality_value = int(new_quality)
+                need_resync = True  # 品质变更需要重新同步
+
         # 处理 code 修改
         if "code" in metadata and metadata["code"] and metadata["code"] != point_code:
             new_code = metadata["code"]

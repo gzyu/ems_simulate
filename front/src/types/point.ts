@@ -24,6 +24,72 @@ export function getPointType(
   return PointTypeMap[chineseName as keyof typeof PointTypeMap] ?? defaultValue;
 }
 
+// ===== IEC104 品质描述符定义 =====
+
+/** IEC104 品质描述符标志位 */
+export interface IEC104QualityFlags {
+  ov: boolean;  // 溢出 (Overflow) — 仅遥测/遥调
+  bl: boolean;  // 闭锁 (Blocked)
+  sb: boolean;  // 取代 (Substituted)
+  nt: boolean;  // 不刷新 (Not Topical)
+  iv: boolean;  // 无效 (Invalid)
+}
+
+/** IEC104 品质描述符（包含标志位和整数值） */
+export interface IEC104QualityDescriptor extends IEC104QualityFlags {
+  value: number;       // 品质描述符整数值
+  labels: string[];    // 激活标志的中文标签
+}
+
+/** 品质标志位掩码 */
+export const IEC104_QUALITY_MASK = {
+  OV: 0x01,  // 溢出
+  BL: 0x02,  // 闭锁
+  SB: 0x04,  // 取代
+  NT: 0x08,  // 不刷新
+  IV: 0x10,  // 无效
+} as const;
+
+/** 从整数值解码品质描述符 */
+export function decodeIec104Quality(value: number, frameType: number): IEC104QualityDescriptor {
+  const labels: string[] = [];
+  const ov = frameType !== 1 && frameType !== 2 && !!(value & IEC104_QUALITY_MASK.OV);
+  const bl = !!(value & IEC104_QUALITY_MASK.BL);
+  const sb = !!(value & IEC104_QUALITY_MASK.SB);
+  const nt = !!(value & IEC104_QUALITY_MASK.NT);
+  const iv = !!(value & IEC104_QUALITY_MASK.IV);
+
+  if (ov) labels.push("溢出");
+  if (bl) labels.push("闭锁");
+  if (sb) labels.push("取代");
+  if (nt) labels.push("不刷新");
+  if (iv) labels.push("无效");
+
+  return { ov, bl, sb, nt, iv, value, labels };
+}
+
+/** 从品质标志位编码为整数值 */
+export function encodeIec104Quality(flags: IEC104QualityFlags, frameType: number): number {
+  let value = 0;
+  // 遥信(1)和遥控(2)不支持 OV 标志
+  if (flags.ov && frameType !== 1 && frameType !== 2) value |= IEC104_QUALITY_MASK.OV;
+  if (flags.bl) value |= IEC104_QUALITY_MASK.BL;
+  if (flags.sb) value |= IEC104_QUALITY_MASK.SB;
+  if (flags.nt) value |= IEC104_QUALITY_MASK.NT;
+  if (flags.iv) value |= IEC104_QUALITY_MASK.IV;
+  return value;
+}
+
+/** 判断帧类型是否支持品质描述符 */
+export function supportsQuality(frameType: number): boolean {
+  return frameType !== 2; // 遥控不带品质
+}
+
+/** 判断帧类型是否支持溢出标志 */
+export function supportsOverflow(frameType: number): boolean {
+  return frameType === 0 || frameType === 3; // 仅遥测和遥调
+}
+
 // ===== IEC104 ASDU 类型定义 =====
 
 export interface IEC104TypeInfo {

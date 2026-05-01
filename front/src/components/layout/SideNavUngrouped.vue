@@ -7,7 +7,7 @@
       </div>
       
       <div class="header-actions" v-if="!isCollapse" @click.stop>
-        <el-dropdown trigger="click" @command="(cmd) => $emit('group-command', cmd)">
+        <el-dropdown trigger="click" @command="(cmd: string) => $emit('group-command', cmd)">
           <el-button link size="small" :icon="MoreFilled" />
           <template #dropdown>
             <el-dropdown-menu>

@@ -79,7 +79,7 @@ class PointYk(Base):
         Integer, nullable=True, server_default="3", comment="IEC104传送原因(COT)"
     )
     iec_quality: Mapped[Optional[int]] = mapped_column(
-        Integer, nullable=True, server_default="0", comment="IEC104品质描述符"
+        Integer, nullable=True, server_default="0", comment="IEC104品质描述符(遥控方向通常不带品质)"
     )
     iec_type_id: Mapped[Optional[str]] = mapped_column(
         String(16), nullable=True, comment="IEC104类型标识(如C_SC_NA_1)"

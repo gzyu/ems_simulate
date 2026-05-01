@@ -127,9 +127,10 @@
         :prop="header.toLowerCase()"
         :label="header"
         :min-width="addressFilteredWidthList[index]"
-        show-overflow-tooltip
+        :show-overflow-tooltip="!['帧类型', 'IEC104类型'].includes(header)"
         :sortable="['功能码', '解析码'].includes(header) ? 'custom' : false"
-        :filters="header === '帧类型' ? tagFilters : undefined"
+        :filters="header === '帧类型' ? tagFilters : header === 'IEC104类型' ? iec104TypeFilters : undefined"
+        :column-key="header"
         :fixed="['帧类型', '状态'].includes(header) ? 'right' : undefined"
       >
         <template #header>
@@ -150,6 +151,14 @@
           <el-tag
             v-if="header === '帧类型'"
             :type="getTagType(scope.row[header])"
+            effect="light"
+            class="status-tag"
+          >
+            {{ scope.row[header] }}
+          </el-tag>
+          <el-tag
+            v-else-if="header === 'IEC104类型' && scope.row[header]"
+            :type="getIec104TagType(scope.row[header])"
             effect="light"
             class="status-tag"
           >
@@ -240,7 +249,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, type PropType } from 'vue'
+import { ref, computed, reactive, watch, type PropType } from 'vue'
 import { useRoute } from "vue-router"
 import { QuestionFilled, Download, Edit, Delete, CircleCheckFilled, CircleCloseFilled, RemoveFilled } from "@element-plus/icons-vue"
 import { ElMessage } from 'element-plus'
@@ -274,6 +283,12 @@ const deviceName = computed(() => route.params.deviceName as string);
 
 const activeName = ref("数据解析和设置");
 const expandedRowKeys = ref<string[]>([]);
+
+// 切换设备时清空展开行，避免用旧pointCode请求新设备
+watch(deviceName, () => {
+  expandedRowKeys.value = [];
+});
+
 const intRegisterDecodeList = ["0x10","0x11","0x20","0x21","0x22","0xB0","0xB1","0xC0","0xC1"];
 const longRegisterDecodeList = ["0x40","0x41","0x43","0x44","0xD0","0xD1","0xD4","0xD5","0x60","0x61","0xE0","0xE1"];
 const floatRegisterDecodeList = ["0x42","0x45","0xD2","0xD3","0x62","0xE2"];
@@ -337,7 +352,7 @@ const columnWidthMap: Record<string, number> = {
   '解析码': 90,
   '帧类型': 80,
   // IEC104 协议特有列
-  'IEC104类型': 140,
+  'IEC104类型': 160,
   '类型标识': 100,
   '传送原因': 100,
   '公共地址': 100,
@@ -370,6 +385,34 @@ const tagFilters = [
   { text: '遥控', value: PointType.YK }, { text: '遥调', value: PointType.YT }
 ];
 
+const iec104TypeFilters = [
+  { text: '短浮点遥测', value: '短浮点遥测' },
+  { text: '归一化遥测', value: '归一化遥测' },
+  { text: '标度化遥测', value: '标度化遥测' },
+  { text: '归一化遥测(不带品质)', value: '归一化遥测(不带品质)' },
+  { text: '归一化遥测(CP56)', value: '归一化遥测(CP56)' },
+  { text: '标度化遥测(CP56)', value: '标度化遥测(CP56)' },
+  { text: '短浮点遥测(CP56)', value: '短浮点遥测(CP56)' },
+  { text: '单点遥信', value: '单点遥信' },
+  { text: '单点遥信(带时标)', value: '单点遥信(带时标)' },
+  { text: '双点遥信', value: '双点遥信' },
+  { text: '双点遥信(带时标)', value: '双点遥信(带时标)' },
+  { text: '单点遥信(CP56)', value: '单点遥信(CP56)' },
+  { text: '双点遥信(CP56)', value: '双点遥信(CP56)' },
+  { text: '单点遥控', value: '单点遥控' },
+  { text: '双点遥控', value: '双点遥控' },
+  { text: '步调节命令', value: '步调节命令' },
+  { text: '单点遥控(CP56)', value: '单点遥控(CP56)' },
+  { text: '双点遥控(CP56)', value: '双点遥控(CP56)' },
+  { text: '步调节命令(CP56)', value: '步调节命令(CP56)' },
+  { text: '设定值(短浮点)', value: '设定值(短浮点)' },
+  { text: '设定值(归一化)', value: '设定值(归一化)' },
+  { text: '设定值(标度化)', value: '设定值(标度化)' },
+  { text: '设定值归一化(CP56)', value: '设定值归一化(CP56)' },
+  { text: '设定值标度化(CP56)', value: '设定值标度化(CP56)' },
+  { text: '设定值短浮点(CP56)', value: '设定值短浮点(CP56)' },
+];
+
 const handleFilterChange = (f: any) => emit('update:activeFilters', f);
 const handleSortChange = ({ prop, order }: { prop: string, order: string | null }) => {
   emit('sort-change', { prop, order });
@@ -394,8 +437,13 @@ const convertedTableData = computed(() => {
 
 const filteredData = computed(() => {
   return convertedTableData.value.filter((row: any) => {
-    return Object.entries(props.activeFilters).every(([_, values]: [any, any]) => {
-      return !values.length || values.includes(getPointType(row['帧类型']));
+    return Object.entries(props.activeFilters).every(([key, values]: [any, any]) => {
+      if (!values.length) return true;
+      if (key === '帧类型') {
+        return values.includes(getPointType(row['帧类型']));
+      }
+      // 其他列（如IEC104类型）直接匹配单元格值
+      return values.includes(row[key]);
     });
   });
 });
@@ -405,6 +453,15 @@ const handleCurrentChange = (p: number) => emit("update:pageIndex", p);
 const getTagType = (v: string) => {
   const map: any = { '遥测': 'success', '遥信': 'warning', '遥控': 'danger', '遥调': 'info' };
   return map[v] || 'info';
+};
+
+const getIec104TagType = (label: string) => {
+  if (label.includes('遥测')) return 'success';
+  if (label.includes('遥信')) return 'warning';
+  if (label.includes('遥控')) return 'danger';
+  if (label.includes('遥调') || label.includes('设定值')) return 'info';
+  if (label.includes('步调节')) return 'danger';
+  return 'info';
 };
 
 const updatePointData = (idx: number, real: number, reg: number) => {

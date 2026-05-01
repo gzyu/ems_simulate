@@ -85,6 +85,7 @@ class YcService:
         elif protocol_type in [ProtocolType.Iec104Server, ProtocolType.Iec104Client]:
             address = decimal_to_hex(int(item["reg_addr"], 0))
             iec_type_id = item.get("iec_type_id")
+            iec_quality = item.get("iec_quality", 0)
             return Yc(
                 rtu_addr=1,
                 address=address,
@@ -97,6 +98,7 @@ class YcService:
                 mul_coe=item["mul_coe"],
                 frame_type=0,
                 iec_type_id=iec_type_id,
+                iec_quality=iec_quality,
             )
 
         elif protocol_type in [ProtocolType.Iec61850Server, ProtocolType.Iec61850Client]:

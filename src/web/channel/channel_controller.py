@@ -519,16 +519,23 @@ async def get_iec61850_structure(channel_id: int, request: Request):
                 client = protocol_handler._client
                 if hasattr(client, 'browse_logical_devices'):
                     logical_devices = client.browse_logical_devices()
-            # IEC 61850 服务端: 从内部模型获取逻辑设备列表
+            # IEC 61850 服务端: 从实际测点引用中提取有测点的逻辑设备列表
             elif hasattr(protocol_handler, '_server') and protocol_handler._server:
                 server = protocol_handler._server
-                ld_map = getattr(server, '_ld_map', {})
-                ld_name = getattr(server, 'ld_name', '')
-                # 合并 ld_map 中的 key 和默认 ld_name
-                ld_set = set(ld_map.keys())
-                if ld_name:
-                    ld_set.add(ld_name)
-                logical_devices = sorted(ld_set) if ld_set else [ld_name or "GenericLD"]
+                point_refs = getattr(server, '_point_refs', {})
+                model_name = getattr(server, 'model_name', '')
+                # 从 MMS 引用路径中提取 LD 名
+                # ref 格式: "{model_name}{ld_name}/LN.DO.DA"  如 "EMSGenericLD/MMXU1.MV_1.mag.f"
+                ld_set = set()
+                for ref in point_refs.values():
+                    ref_str = str(ref)
+                    # 去掉 model_name 前缀后，取第一个 '/' 前的部分
+                    if ref_str.startswith(model_name):
+                        rest = ref_str[len(model_name):]
+                        ld_part = rest.split('/')[0]
+                        if ld_part:
+                            ld_set.add(ld_part)
+                logical_devices = sorted(ld_set)
 
         structure = {
             "GOOSE": [],

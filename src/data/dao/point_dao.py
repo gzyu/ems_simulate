@@ -292,6 +292,10 @@ class PointDao:
                             if "iec_type_id" in metadata:
                                 result.iec_type_id = metadata["iec_type_id"] if metadata["iec_type_id"] else None
                             
+                            # IEC104 品质描述符
+                            if "iec_quality" in metadata:
+                                result.iec_quality = int(metadata["iec_quality"]) if metadata["iec_quality"] is not None else 0
+                            
                             return True
                     return False
         except Exception as e:
@@ -348,6 +352,7 @@ class PointDao:
                         max_limit=point_data.get("max_limit", calc_max),
                         min_limit=point_data.get("min_limit", calc_min),
                         iec_type_id=point_data.get("iec_type_id"),
+                        iec_quality=point_data.get("iec_quality", 0),
                         enable=True
                     )
                     session.add(point)
@@ -373,6 +378,7 @@ class PointDao:
                         decode_code=point_data.get("decode_code", "0x10"),
                         bit=point_data.get("bit"),
                         iec_type_id=point_data.get("iec_type_id"),
+                        iec_quality=point_data.get("iec_quality", 0),
                         enable=True
                     )
                     session.add(point)
@@ -398,6 +404,7 @@ class PointDao:
                         decode_code=point_data.get("decode_code", "0x10"),
                         bit=point_data.get("bit"),
                         iec_type_id=point_data.get("iec_type_id"),
+                        iec_quality=point_data.get("iec_quality", 0),
                         enable=True
                     )
                     session.add(point)
@@ -431,6 +438,7 @@ class PointDao:
                         max_limit=point_data.get("max_limit", calc_max),
                         min_limit=point_data.get("min_limit", calc_min),
                         iec_type_id=point_data.get("iec_type_id"),
+                        iec_quality=point_data.get("iec_quality", 0),
                         enable=True
                     )
                     session.add(point)
@@ -492,6 +500,7 @@ class PointDao:
                                 max_limit=point_data.get("max_limit", calc_max),
                                 min_limit=point_data.get("min_limit", calc_min),
                                 iec_type_id=point_data.get("iec_type_id"),
+                                iec_quality=point_data.get("iec_quality", 0),
                                 enable=True
                             )
                         elif frame_type == 1:  # 遥信
@@ -505,6 +514,7 @@ class PointDao:
                                 decode_code=point_data.get("decode_code", "0x10"),
                                 bit=point_data.get("bit"),
                                 iec_type_id=point_data.get("iec_type_id"),
+                                iec_quality=point_data.get("iec_quality", 0),
                                 enable=True
                             )
                         elif frame_type == 2:  # 遥控
@@ -518,6 +528,7 @@ class PointDao:
                                 decode_code=point_data.get("decode_code", "0x10"),
                                 bit=point_data.get("bit"),
                                 iec_type_id=point_data.get("iec_type_id"),
+                                iec_quality=point_data.get("iec_quality", 0),
                                 enable=True
                             )
                         elif frame_type == 3:  # 遥调
@@ -539,6 +550,7 @@ class PointDao:
                                 max_limit=point_data.get("max_limit", calc_max),
                                 min_limit=point_data.get("min_limit", calc_min),
                                 iec_type_id=point_data.get("iec_type_id"),
+                                iec_quality=point_data.get("iec_quality", 0),
                                 enable=True
                             )
                         else:

@@ -14,8 +14,8 @@
       >
         <template #label>
           <span class="custom-tab-label">
-            <span>从机 {{ slave }}</span>
-            <span @click.stop>
+            <span>{{ isIec61850 ? '测点数据' : `从机 ${slave}` }}</span>
+            <span v-if="!isIec61850" @click.stop>
               <el-dropdown trigger="click" @command="handleCommand($event, slave)" class="tab-dropdown">
                 <el-icon class="more-btn"><MoreFilled /></el-icon>
                 <template #dropdown>
@@ -163,8 +163,8 @@
         />
       </el-tab-pane>
       
-      <!-- 添加从机按钮（作为特殊 tab） -->
-      <el-tab-pane name="add" :closable="false">
+      <!-- 添加从机按钮（作为特殊 tab，IEC61850 不需要） -->
+      <el-tab-pane v-if="!isIec61850" name="add" :closable="false">
         <template #label>
           <span class="add-slave-tab">
             <el-icon><Plus /></el-icon>
@@ -184,16 +184,18 @@
       @success="handlePointAdded"
     />
     
-    <!-- 添加从机对话框 -->
+    <!-- 添加从机对话框（IEC61850 不需要） -->
     <AddSlaveDialog
+      v-if="!isIec61850"
       v-model="showAddSlaveDialog"
       :deviceName="routeName"
       :existingSlaves="slaveIdList"
       @success="handleSlaveAdded"
     />
 
-    <!-- 编辑从机对话框 -->
+    <!-- 编辑从机对话框（IEC61850 不需要） -->
     <EditSlaveDialog
+      v-if="!isIec61850"
       v-model="showEditSlaveDialog"
       :deviceName="routeName"
       :existingSlaves="slaveIdList"
@@ -239,11 +241,15 @@ const isAutoRead = ref<boolean>(false);
 const iec61850Category = ref<string>('');
 const iec61850Item = ref<string>('');
 
+// 判断当前是否为 IEC61850 协议
+const isIec61850 = computed(() => {
+  const protocolStr = String(protocolType.value);
+  return protocolStr === 'Iec61850Client' || protocolStr === 'Iec61850Server';
+});
+
 // 判断当前是否为 IEC61850 树节点筛选模式
 const isIec61850Filtered = computed(() => {
-  const protocolStr = String(protocolType.value);
-  const isIec61850 = protocolStr === 'Iec61850Client' || protocolStr === 'Iec61850Server';
-  return isIec61850 && channelId.value !== null && !!iec61850Category.value;
+  return isIec61850.value && channelId.value !== null && !!iec61850Category.value;
 });
 
 // 判断是否需要显示自动读取控件 
@@ -264,7 +270,14 @@ const showAddSlaveDialog = ref<boolean>(false);
 const showEditSlaveDialog = ref<boolean>(false);
 const editSlaveId = ref<number>(0);
 
-const pointTypes = computed<number[]>(() => Object.values(activeFilters.value).flat() as number[]);
+const pointTypes = computed<number[]>(() => {
+  // 只提取帧类型筛选的数字值，忽略 IEC104类型等字符串筛选
+  const frameTypeFilters = activeFilters.value['帧类型'];
+  if (frameTypeFilters && Array.isArray(frameTypeFilters)) {
+    return frameTypeFilters.filter((v: any) => typeof v === 'number');
+  }
+  return [];
+});
 
 const handlePageIndexChange = (idx: number) => { 
   pageIndex.value = idx; 
@@ -274,9 +287,15 @@ const handlePageSizeChange = (size: number) => {
   pageSize.value = size; 
   handleSearch(currentSlaveId.value);
 };
-const handleFilterChange = (filters: Record<string, number>) => {
+const handleFilterChange = (filters: Record<string, any>) => {
+  const prevFilters = activeFilters.value;
   activeFilters.value = filters;
-  fetchDeviceTable(routeName.value, currentSlaveId.value, searchQuery.value[currentSlaveId.value] || "", pageIndex.value, pageSize.value);
+  // 仅帧类型筛选变化时需要重新请求后端，IEC104类型筛选纯前端过滤
+  const prevFrameTypes = (prevFilters['帧类型'] || []).join(',');
+  const newFrameTypes = (filters['帧类型'] || []).join(',');
+  if (prevFrameTypes !== newFrameTypes) {
+    fetchDeviceTable(routeName.value, currentSlaveId.value, searchQuery.value[currentSlaveId.value] || "", pageIndex.value, pageSize.value);
+  }
 };
 const handleSortChange = ({ prop, order }: { prop: string, order: string | null }) => {
   orderBy.value = order ? prop : null;
@@ -297,6 +316,15 @@ const fetchSlaveList = async () => {
     }
   } catch (e) { console.warn("设备信息获取失败"); }
   
+  // IEC61850 协议不需要从机列表，使用默认值
+  if (isIec61850.value) {
+    slaveIdList.value = [1];
+    currentSlaveId.value = 1;
+    activeName.value = "1";
+    await fetchAllDeviceTables();
+    return;
+  }
+
   slaveIdList.value = await getSlaveIdList(routeName.value);
   if (slaveIdList.value.length > 0) {
     currentSlaveId.value = slaveIdList.value[0];

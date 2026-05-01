@@ -205,6 +205,7 @@ async def add_point(req: PointCreateRequest, request: Request):
             "mul_coe": req.mul_coe,
             "add_coe": req.add_coe,
             "iec_type_id": req.iec_type_id,
+            "iec_quality": req.iec_quality,
         }
         success = device.add_point_dynamic(channel_id, req.frame_type, point_data)
         if success:

@@ -12,6 +12,7 @@ from src.enums.points.change_tracker import (
     get_current_source, get_current_detail,
     get_current_client_info
 )
+from src.enums.points.iec104_quality import IEC104QualityDescriptor
 
 
 def decimal_to_hex_formatted(decimal_number: int, length=4) -> str:
@@ -34,6 +35,7 @@ class BasePoint:
         frame_type: int = 0,
         decode: str = "0x41",
         iec_type_id: Optional[str] = None,
+        iec_quality: Optional[int] = None,
     ) -> None:
         self._is_updating = False
         self._rtu_addr: int = int(rtu_addr)
@@ -56,6 +58,7 @@ class BasePoint:
         self._is_plan: bool = False
         self._decode = decode
         self._iec_type_id: Optional[str] = iec_type_id
+        self._iec_quality: IEC104QualityDescriptor = IEC104QualityDescriptor.from_int(iec_quality or 0)
 
         self.is_send_signal = False
         self.related_point: Optional["BasePoint"] = None
@@ -200,6 +203,25 @@ class BasePoint:
     @iec_type_id.setter
     def iec_type_id(self, type_id: Optional[str]):
         self._iec_type_id = type_id
+
+    @property
+    def iec_quality(self) -> IEC104QualityDescriptor:
+        """IEC104 品质描述符"""
+        return self._iec_quality
+
+    @iec_quality.setter
+    def iec_quality(self, quality: IEC104QualityDescriptor):
+        self._iec_quality = quality
+
+    @property
+    def iec_quality_value(self) -> int:
+        """IEC104 品质描述符整数值（用于数据库存储）"""
+        return self._iec_quality.to_int()
+
+    @iec_quality_value.setter
+    def iec_quality_value(self, value: int):
+        """通过整数值设置品质描述符"""
+        self._iec_quality = IEC104QualityDescriptor.from_int(value)
 
     @property
     def is_simulated(self) -> bool:

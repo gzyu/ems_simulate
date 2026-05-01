@@ -253,6 +253,8 @@ const fetchIEC61850Structure = async (channelId: number, deviceName: string) => 
           id: 0,
           isIec61850Child: true,
           name: cat.label,
+          deviceName: deviceName,
+          type: cat.label,
         });
       }
     });

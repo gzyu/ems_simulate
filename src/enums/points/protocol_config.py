@@ -6,6 +6,8 @@
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 
+from src.enums.points.iec104_quality import IEC104QualityDescriptor
+
 
 @dataclass
 class ModbusConfig:
@@ -41,7 +43,7 @@ class IEC104Config:
     """IEC104 协议配置"""
     common_address: int = 1          # 公共地址（站地址）
     cot: int = 3                      # 传送原因 (Cause of Transmission)
-    quality: int = 0                  # 品质描述符
+    quality: int = 0                  # 品质描述符（位标志: OV=0x01 BL=0x02 SB=0x04 NT=0x08 IV=0x10）
     type_id: Optional[str] = None     # 类型标识（如 M_ME_NC_1）
     
     # COT 常用值
@@ -52,6 +54,16 @@ class IEC104Config:
     COT_REQUEST = 5       # 请求
     COT_ACTIVATION = 6    # 激活
     COT_ACTIVATION_CON = 7  # 激活确认
+    
+    @property
+    def quality_descriptor(self) -> IEC104QualityDescriptor:
+        """获取品质描述符对象"""
+        return IEC104QualityDescriptor.from_int(self.quality)
+    
+    @quality_descriptor.setter
+    def quality_descriptor(self, descriptor: IEC104QualityDescriptor):
+        """设置品质描述符对象"""
+        self.quality = descriptor.to_int()
     
     def to_dict(self) -> Dict[str, Any]:
         return {

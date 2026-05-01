@@ -27,6 +27,13 @@ from src.enums.points.iec104_type import (
     is_double_point_type,
     is_step_type,
 )
+from src.enums.points.iec104_quality import (
+    IEC104QualityFlag,
+    IEC104QualityDescriptor,
+    supports_overflow,
+    supports_quality,
+    get_quality_descriptor_for_frame_type,
+)
 
 __all__ = [
     "BasePoint",
@@ -52,4 +59,9 @@ __all__ = [
     "resolve_iec104_type",
     "is_double_point_type",
     "is_step_type",
+    "IEC104QualityFlag",
+    "IEC104QualityDescriptor",
+    "supports_overflow",
+    "supports_quality",
+    "get_quality_descriptor_for_frame_type",
 ]
