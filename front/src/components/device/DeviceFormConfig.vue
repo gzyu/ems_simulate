@@ -87,6 +87,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue';
 import type { ChannelCreateRequest, ProtocolOption } from '@/types/channel';
+import { BAUD_RATES, PROTOCOL_DEFAULT_PORTS } from '@/constants/protocol';
 
 const props = defineProps<{
   modelValue: ChannelCreateRequest;
@@ -106,16 +107,9 @@ const filteredProtocols = computed(() => {
   return props.protocols.filter(p => p.conn_types.includes(props.modelValue.conn_type));
 });
 
-const baudRates = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
+const baudRates = BAUD_RATES;
 
-// 协议默认端口映射
-const PROTOCOL_DEFAULT_PORTS: Record<number, number> = {
-  0: 502,    // Modbus RTU (串口，一般不用端口)
-  1: 502,    // Modbus TCP
-  2: 2404,   // IEC 104
-  3: 502,    // DL/T 645
-  4: 102,    // IEC 61850
-};
+// 协议默认端口映射已提取到 @/constants/protocol
 
 // 监听协议切换，自动更新默认端口
 watch(() => props.modelValue.protocol_type, (newType) => {

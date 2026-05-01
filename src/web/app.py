@@ -3,40 +3,44 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.web.device.device_controller import device_router
-from src.web.channel.channel_controller import channel_router
-from src.web.device_group.device_group_controller import device_group_router
-from src.web.point.point_mapping import router as point_mapping_router
-from src.web.point.point_tree import router as point_tree_router
-from src.web.point.point_controller import point_router
+from src.web.api import (
+    channel_router,
+    device_router,
+    point_router,
+    point_mapping_router,
+    point_tree_router,
+    device_group_router,
+)
 from src.device_controller import get_device_controller
-from src.web.schemas.schemas import BaseResponse
+from src.web.api.schemas import BaseResponse
 from src.web.log import log
+
 
 def create_app():
     app = FastAPI(
         title="EMS Simulator API",
         docs_url="/docs",
         redoc_url="/redoc",
-        openapi_url="/openapi.json"
+        openapi_url="/openapi.json",
     )
-    
+
     # 配置CORS
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # 在生产环境中应该指定具体的前端域名
+        allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # 注册路由
-    app.include_router(device_router, prefix="")
-    app.include_router(channel_router, prefix="")
-    app.include_router(device_group_router, prefix="")
-    app.include_router(point_mapping_router, prefix="")
-    app.include_router(point_tree_router, prefix="")
-    app.include_router(point_router, prefix="")
+    app.include_router(channel_router)
+    app.include_router(device_router)
+    app.include_router(point_router)
+    app.include_router(point_mapping_router)
+    app.include_router(point_tree_router)
+    app.include_router(device_group_router)
+
     return app
 
 

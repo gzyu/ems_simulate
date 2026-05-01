@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from src.web.schemas.schemas_tree import DeviceNode, TypeNode, PointLeaf
+from src.web.api.schemas.tree import DeviceNode, TypeNode, PointLeaf
 from src.device_controller import get_device_controller
 from src.enums.points.base_point import BasePoint
 from src.log import log

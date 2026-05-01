@@ -3,7 +3,7 @@ import json
 import time
 
 def test_api():
-    base_url = "http://localhost:8888/api/point_mapping"
+    base_url = "http://localhost:8888/api/point-mappings"
     
     print(f"Testing API at {base_url}")
     

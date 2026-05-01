@@ -1,0 +1,18 @@
+"""API 路由模块
+
+统一导出所有路由器
+"""
+
+from src.web.api.channel import channel_router
+from src.web.api.device import device_router
+from src.web.api.point import point_router, point_mapping_router, point_tree_router
+from src.web.api.device_group import device_group_router
+
+__all__ = [
+    "channel_router",
+    "device_router",
+    "point_router",
+    "point_mapping_router",
+    "point_tree_router",
+    "device_group_router",
+]

@@ -206,13 +206,16 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, watch, onUnmounted, computed, onActivated, onDeactivated } from "vue";
+import { ref, onMounted, watch, computed } from "vue";
 import { useRoute } from "vue-router";
 import { ElMessage, ElMessageBox, type TabsPaneContext } from "element-plus";
 import { Search, Refresh, Download, Plus, Delete, CircleCloseFilled, MoreFilled } from "@element-plus/icons-vue";
-import { getSlaveIdList, getDeviceTable, getDeviceInfo, getAutoReadStatus, startAutoRead, stopAutoRead, manualRead, instance, deleteSlave } from "@/api/deviceApi";
-import { getIEC61850TableData, iec61850ReadPoints } from "@/api/channelApi";
-import { readSinglePoint, clearPoints, resetPointData } from "@/api/pointApi";
+import { getSlaveIdList, getDeviceTable, getDeviceInfo, deleteSlave } from "@/api/deviceApi";
+import { instance } from "@/api/http";
+import { getIEC61850TableData } from "@/api/channelApi";
+import { clearPoints, resetPointData } from "@/api/pointApi";
+import { useAutoRead } from "@/composables";
+import { isIec61850Protocol } from "@/constants/protocol";
 import DeviceTable from "./Table.vue";
 import AddPointDialog from "./AddPointDialog.vue";
 import AddSlaveDialog from "./AddSlaveDialog.vue";
@@ -235,7 +238,6 @@ const orderDirection = ref<string | null>(null);
 const protocolType = ref<number | string>(1);
 const connType = ref<number>(2); // 默认为服务端
 const channelId = ref<number | null>(null);
-const isAutoRead = ref<boolean>(false);
 
 // IEC61850 树形节点筛选
 const iec61850Category = ref<string>('');
@@ -243,27 +245,12 @@ const iec61850Item = ref<string>('');
 
 // 判断当前是否为 IEC61850 协议
 const isIec61850 = computed(() => {
-  const protocolStr = String(protocolType.value);
-  return protocolStr === 'Iec61850Client' || protocolStr === 'Iec61850Server';
+  return isIec61850Protocol(String(protocolType.value));
 });
 
 // 判断当前是否为 IEC61850 树节点筛选模式
 const isIec61850Filtered = computed(() => {
   return isIec61850.value && channelId.value !== null && !!iec61850Category.value;
-});
-
-// 判断是否需要显示自动读取控件 
-// Modbus 客户端/主站 (conn_type 0 或 1) 需要主动轮询，需要显示
-// IEC104 客户端虽然是 conn_type=1，但数据是服务端推送的，不需要显示
-// 注：表格每秒刷新对所有设备都生效，这里只控制自动读取按钮的显示
-const needsAutoReadControls = computed(() => {
-  // IEC104 协议类型不需要自动读取控件（数据由服务端推送）
-  const protocolStr = String(protocolType.value);
-  if (protocolStr === 'Iec104Client' || protocolStr === 'Iec104Server') {
-    return false;
-  }
-  // 只有客户端/主站模式 (conn_type 0 或 1) 显示自动读取控件
-  return connType.value === 0 || connType.value === 1;
 });
 const showAddPointDialog = ref<boolean>(false);
 const showAddSlaveDialog = ref<boolean>(false);
@@ -531,6 +518,46 @@ const handleSlaveEdited = async (newSlaveId: number) => {
 };
 
 
+// ===== 自动读取 composable =====
+const {
+  isAutoRead,
+  isReading,
+  readProgress,
+  progressMessage,
+  readInterval,
+  intervalOptions,
+  readMode,
+  readModeOptions,
+  needsAutoReadControls,
+  startAutoRefresh,
+  stopAutoRefresh,
+  handleAutoReadChange,
+  handleIntervalChange,
+  handleManualRead,
+  fetchAutoReadStatus,
+  formatProgress,
+  successCount,
+  failCount,
+} = useAutoRead({
+  routeName,
+  currentSlaveId,
+  searchQuery,
+  pageIndex,
+  pageSize,
+  pointTypes,
+  orderBy,
+  orderDirection,
+  protocolType,
+  connType,
+  channelId,
+  iec61850Category,
+  iec61850Item,
+  tableDataMap,
+  total,
+  fetchDeviceTable,
+});
+
+
 // Watch for route param changes
 
 
@@ -550,7 +577,6 @@ watch(() => route.fullPath, async () => {
           pageIndex.value = 1; 
           pageSize.value = 10;
           isAutoRead.value = false;
-          await stopAutoRead(routeName.value);
           await fetchSlaveList();
           startAutoRefresh();
       } else {
@@ -565,282 +591,6 @@ watch(() => route.fullPath, async () => {
     }
 });
 
-const timer = ref<any>(null);
-const startAutoRefresh = () => {
-  if (timer.value) return;
-  timer.value = setInterval(() => {
-    fetchDeviceTable(routeName.value, currentSlaveId.value, searchQuery.value[currentSlaveId.value] || "", pageIndex.value, pageSize.value);
-  }, 1000);
-};
-
-const stopAutoRefresh = () => {
-  if (timer.value) {
-    clearInterval(timer.value);
-    timer.value = null;
-  }
-};
-
-const handleAutoReadChange = async (enabled: boolean) => {
-  if (enabled) {
-    await startAutoRead(routeName.value);
-    ElMessage.success("已启用自动读取");
-  } else {
-    await stopAutoRead(routeName.value);
-    ElMessage.success("已停止自动读取");
-  }
-};
-
-const isReading = ref(false);
-const cancelRead = ref(false);
-const successCount = ref(0);
-const failCount = ref(0);
-const readInterval = ref(100);
-const intervalOptions = ref([
-  { label: '10ms', value: 10 },
-  { label: '50ms', value: 50 },
-  { label: '100ms', value: 100 },
-  { label: '200ms', value: 200 },
-  { label: '500ms', value: 500 },
-  { label: '1000ms', value: 1000 },
-  { label: '2000ms', value: 2000 },
-  { label: '5000ms', value: 5000 },
-]);
-
-// 读取模式: batch=批量读取(优化), single=逐点读取(传统)
-const readMode = ref<'batch' | 'single'>('batch');
-const readModeOptions = [
-  { label: '批量', value: 'batch' },
-  { label: '逐点', value: 'single' },
-];
-
-const handleIntervalChange = (val: string | number) => {
-  const numVal = Number(val);
-  if (!isNaN(numVal) && numVal > 0) {
-    const exists = intervalOptions.value.some(opt => opt.value === numVal);
-    if (!exists) {
-      intervalOptions.value.push({
-        label: `${numVal}ms`,
-        value: numVal
-      });
-      // Sort options optional, but good for UX? Maybe not needed if user just wants it added.
-      intervalOptions.value.sort((a, b) => a.value - b.value);
-    }
-    readInterval.value = numVal;
-  }
-};
-
-const handleManualRead = async () => {
-  if (isReading.value) {
-    cancelRead.value = true;
-    return;
-  }
-
-  // 检查设备连接状态
-  const deviceInfo = await getDeviceInfo(routeName.value);
-  const serverStatus = deviceInfo?.get("server_status");
-  if (!serverStatus) {
-    ElMessage.error("设备未连接，请先启动设备后再进行读取操作");
-    return;
-  }
-
-  isReading.value = true;
-  cancelRead.value = false;
-  readProgress.value = 0;
-  successCount.value = 0;
-  failCount.value = 0;
-
-  if (readMode.value === 'batch') {
-    // ========== 批量读取模式 ==========
-    await handleBatchRead();
-  } else {
-    // ========== 逐点读取模式 ==========
-    await handleSinglePointRead();
-  }
-};
-
-// 批量读取模式（优化版）
-const handleBatchRead = async () => {
-  progressMessage.value = "正在批量读取寄存器...";
-  
-  try {
-    // IEC61850 过滤模式下使用专用接口
-    if (isIec61850Filtered.value && channelId.value !== null) {
-      progressMessage.value = "正在读取 IEC61850 测点...";
-      const result = await iec61850ReadPoints(
-        channelId.value,
-        iec61850Category.value,
-        iec61850Item.value,
-        readInterval.value,
-      );
-
-      if (result) {
-        successCount.value = result.success;
-        failCount.value = result.fail;
-        progressMessage.value = `批量读取完成 (成功: ${result.success}, 失败: ${result.fail})`;
-        ElMessage.success(`批量读取完成，成功 ${result.success} 个，失败 ${result.fail} 个`);
-      } else {
-        readProgress.value = 100;
-        progressMessage.value = "批量读取完成";
-        ElMessage.success("批量读取完成");
-      }
-
-      await fetchDeviceTable(
-        routeName.value, 
-        currentSlaveId.value, 
-        searchQuery.value[currentSlaveId.value] || "", 
-        pageIndex.value, 
-        pageSize.value
-      );
-      
-      readProgress.value = 100;
-      return;
-    }
-
-    const result = await manualRead(routeName.value, readInterval.value);
-    
-    // 如果返回的是对象则包含统计信息，否则视为全部成功
-    if (result) {
-      if (typeof result === 'object' && 'success' in result) {
-        successCount.value = result.success;
-        failCount.value = result.fail;
-        progressMessage.value = `批量读取完成 (成功: ${result.success}, 失败: ${result.fail})`;
-        ElMessage.success(`批量读取完成，成功 ${result.success} 个，失败 ${result.fail} 个`);
-      } else {
-        readProgress.value = 100;
-        progressMessage.value = "批量读取完成";
-        ElMessage.success("批量读取完成");
-      }
-
-      await fetchDeviceTable(
-        routeName.value, 
-        currentSlaveId.value, 
-        searchQuery.value[currentSlaveId.value] || "", 
-        pageIndex.value, 
-        pageSize.value
-      );
-      
-      readProgress.value = 100;
-    }
-  } catch (e) {
-    console.error('批量读取失败:', e);
-    progressMessage.value = "读取出错";
-  } finally {
-    setTimeout(() => {
-      isReading.value = false;
-      readProgress.value = 0;
-    }, 1500);
-  }
-};
-
-// 逐点读取模式（传统版）
-const handleSinglePointRead = async () => {
-  progressMessage.value = "正在获取测点列表...";
-
-  try {
-    // IEC61850 过滤模式下使用专用接口获取测点列表
-    let allRows: any[][] = [];
-    if (isIec61850Filtered.value && channelId.value !== null) {
-      const data = await getIEC61850TableData(
-        channelId.value,
-        iec61850Category.value,
-        iec61850Item.value,
-        null,
-        1,
-        10000,
-        pointTypes.value,
-      );
-      if (data) {
-        allRows = data.get("table_data") || [];
-      }
-    } else {
-      const data = await getDeviceTable(routeName.value, currentSlaveId.value, "", 1, 10000, pointTypes.value);
-      allRows = data.get("table_data") || [];
-    }
-
-    const totalPoints = allRows.length;
-
-    if (totalPoints === 0) {
-      ElMessage.warning("当前从机没有测点");
-      isReading.value = false;
-      return;
-    }
-
-    progressMessage.value = "开始逐点读取...";
-    
-    // 2. 循环读取每个测点
-    for (let i = 0; i < totalPoints; i++) {
-      if (cancelRead.value) {
-        progressMessage.value = "读取已取消";
-        ElMessage.warning("操作已取消");
-        break;
-      }
-
-      const row = allRows[i];
-      const pointCode = row[6];
-      const pointName = row[5];
-      
-      progressMessage.value = `[${i + 1}/${totalPoints}] ${pointName}`;
-      
-      try {
-        const value = await readSinglePoint(routeName.value, pointCode);
-        
-        if (value !== null) {   
-          successCount.value++;
-          // 更新表格显示
-          if (tableDataMap.value[currentSlaveId.value]) {
-            const currentTableData = tableDataMap.value[currentSlaveId.value].tableData;
-            const displayRow = currentTableData.find(r => r[6] === pointCode);
-            if (displayRow) {
-              displayRow[8] = value;
-            }
-          }
-        } else {
-          failCount.value++;
-        }
-      } catch (e) {
-        failCount.value++;
-      }
-
-      // 读取间隔
-      if (readInterval.value > 0) {
-        await new Promise(resolve => setTimeout(resolve, readInterval.value));
-      }
-
-      readProgress.value = Math.floor(((i + 1) / totalPoints) * 100);
-    }
-    
-    if (!cancelRead.value) {
-      progressMessage.value = `完成 (成功: ${successCount.value}, 失败: ${failCount.value})`;
-      ElMessage.success(`读取完成，成功 ${successCount.value} 个，失败 ${failCount.value} 个`);
-    }
-
-  } catch (e) {
-    console.error('逐点读取失败:', e);
-  } finally {
-    if (cancelRead.value) {
-      isReading.value = false;
-      readProgress.value = 0;
-      successCount.value = 0;
-      failCount.value = 0;
-    } else {
-      setTimeout(() => {
-        isReading.value = false;
-        readProgress.value = 0;
-        successCount.value = 0;
-        failCount.value = 0;
-      }, 2000);
-    }
-  }
-};
-
-const fetchAutoReadStatus = async () => {
-  const status = await getAutoReadStatus(routeName.value);
-  isAutoRead.value = status;
-  if (status) {
-    startAutoRefresh();
-  }
-};
-
 onMounted(async () => {
   // 从路由查询参数初始化 IEC61850 筛选条件
   iec61850Category.value = (route.query.category as string) || '';
@@ -854,18 +604,7 @@ onMounted(async () => {
   // connectWebSocket();
 });
 
-onActivated(() => {
-  // 始终开启表格刷新以支持主动上报协议的数据显示
-  startAutoRefresh();
-});
 
-onDeactivated(() => {
-  stopAutoRefresh();
-});
-
-
-const readProgress = ref(0);
-const progressMessage = ref("");
 let websocket: WebSocket | null = null;
 let wsReconnectTimer: any = null;
 
@@ -936,10 +675,6 @@ const connectWebSocket = () => {
     };
 };
 
-const formatProgress = (percentage: number) => {
-    return percentage === 100 ? '完成' : `${percentage}%`;
-};
-
 const handlePointAdded = () => {
   fetchDeviceTable(routeName.value, currentSlaveId.value, searchQuery.value[currentSlaveId.value] || "", pageIndex.value, pageSize.value);
 };
@@ -955,8 +690,6 @@ const reloadDatas = async () => {
 defineExpose({
   reloadDatas
 });
-
-onUnmounted(() => { stopAutoRefresh(); });
 </script>
 
 <style lang="scss" scoped>

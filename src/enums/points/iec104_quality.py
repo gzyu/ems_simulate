@@ -9,7 +9,7 @@ IEC 104 协议中，不同 ASDU 类型有不同的品质描述符格式：
 - 遥调 (C_SE_*): QDS — OV/BL/SB/NT/IV
 
 品质描述符各标志位含义：
-    OV (Overflow):      溢出 — 遥测/遥调值超出表示范围
+    OV (Overflow):       溢出 — 遥测/遥调值超出表示范围
     BL (Blocked):        闭锁 — 值被闭锁（例如现场检修时闭锁）
     SB (Substituted):    取代 — 值被手动/自动取代
     NT (Not Topical):    不刷新 — 值未更新（非当前值）
@@ -239,10 +239,55 @@ def get_quality_descriptor_for_frame_type(frame_type: int) -> str:
     return names.get(frame_type, "未知")
 
 
+# ===== c104 库品质位映射 =====
+# c104 库使用的品质位编码与应用层不同：
+#   应用层: OV=0x01, BL=0x02, SB=0x04, NT=0x08, IV=0x10
+#   c104库: OV=0x01, BL=0x10, SB=0x20, NT=0x40, IV=0x80, ETI=0x08
+_C104_QUALITY_MASK = {
+    "OV": 0x01,   # Overflow
+    "BL": 0x10,   # Blocked
+    "SB": 0x20,   # Substituted
+    "NT": 0x40,   # NonTopical
+    "IV": 0x80,   # Invalid
+    "ETI": 0x08,  # ElapsedTimeInvalid (c104 库特有)
+}
+
+# 应用层品质位 → c104 品质位
+_APP_TO_C104 = {
+    0x01: _C104_QUALITY_MASK["OV"],   # OV
+    0x02: _C104_QUALITY_MASK["BL"],   # BL
+    0x04: _C104_QUALITY_MASK["SB"],   # SB
+    0x08: _C104_QUALITY_MASK["NT"],   # NT
+    0x10: _C104_QUALITY_MASK["IV"],   # IV
+}
+
+# c104 品质位 → 应用层品质位
+_C104_TO_APP = {v: k for k, v in _APP_TO_C104.items()}
+
+
+def _app_quality_to_c104(app_value: int) -> int:
+    """将应用层品质整数值转换为 c104 库品质整数值"""
+    c104_value = 0
+    for app_bit, c104_bit in _APP_TO_C104.items():
+        if app_value & app_bit:
+            c104_value |= c104_bit
+    return c104_value
+
+
+def _c104_quality_to_app(c104_value: int) -> int:
+    """将 c104 库品质整数值转换为应用层品质整数值"""
+    app_value = 0
+    for c104_bit, app_bit in _C104_TO_APP.items():
+        if c104_value & c104_bit:
+            app_value |= app_bit
+    return app_value
+
+
 def decode_quality_from_c104(point, frame_type: int) -> IEC104QualityDescriptor:
     """从 c104 Point 对象解码品质描述符
 
     c104 库的 Point 对象包含 quality 属性，读取后转换为 IEC104QualityDescriptor。
+    注意：c104 库的品质位编码与应用层不同，需要转换。
 
     Args:
         point: c104.Point 对象
@@ -252,9 +297,10 @@ def decode_quality_from_c104(point, frame_type: int) -> IEC104QualityDescriptor:
         品质描述符对象
     """
     try:
-        if hasattr(point, 'quality'):
-            quality_int = int(point.quality)
-            return IEC104QualityDescriptor.from_int(quality_int)
+        if hasattr(point, 'quality') and point.quality is not None:
+            c104_quality_int = int(point.quality)
+            app_quality_int = _c104_quality_to_app(c104_quality_int)
+            return IEC104QualityDescriptor.from_int(app_quality_int)
     except Exception:
         pass
     return IEC104QualityDescriptor()
@@ -263,6 +309,7 @@ def decode_quality_from_c104(point, frame_type: int) -> IEC104QualityDescriptor:
 def encode_quality_for_c104(quality: IEC104QualityDescriptor, frame_type: int) -> int:
     """将品质描述符编码为 c104 可接受的整数值
 
+    c104 库使用不同的品质位编码，此处完成应用层→c104库的转换。
     对于不支持 OV 的帧类型，自动清除 OV 位。
 
     Args:
@@ -270,13 +317,16 @@ def encode_quality_for_c104(quality: IEC104QualityDescriptor, frame_type: int) -
         frame_type: 帧类型
 
     Returns:
-        编码后的品质整数值
+        编码后的品质整数值（c104 库格式）
     """
-    value = quality.to_int()
     # 遥控不带品质
     if frame_type == 2:
         return 0
+
+    app_value = quality.to_int()
     # 遥信不支持 OV
     if frame_type == 1:
-        value &= ~0x01  # 清除 OV 位
-    return value
+        app_value &= ~0x01  # 清除 OV 位
+
+    # 转换为 c104 库编码
+    return _app_quality_to_c104(app_value)

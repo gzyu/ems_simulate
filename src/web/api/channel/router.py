@@ -1,0 +1,210 @@
+"""通道管理 - 通道 CRUD 路由"""
+
+from fastapi import APIRouter, Request
+
+from src.data.service.channel_service import ChannelService
+from src.web.api.schemas import BaseResponse, ChannelCreateRequest, ChannelUpdateRequest
+from src.web.api.channel.helpers import (
+    get_device_builder, configure_builder_network, is_client_protocol,
+    reload_device_instance,
+)
+from src.enums.modbus_def import ProtocolType
+from src.config.config import Config
+from src.web.log import log
+
+router = APIRouter(tags=["channel"])
+
+
+# 协议类型映射
+PROTOCOL_OPTIONS = [
+    {"value": 0, "label": "Modbus RTU", "conn_types": [0, 3]},
+    {"value": 1, "label": "Modbus TCP", "conn_types": [1, 2]},
+    {"value": 2, "label": "IEC 104", "conn_types": [1, 2]},
+    {"value": 3, "label": "DL/T645-2007", "conn_types": [0, 1, 2, 3]},
+    {"value": 4, "label": "IEC 61850", "conn_types": [1, 2]},
+]
+
+# 连接类型映射
+CONN_TYPE_OPTIONS = [
+    {"value": 0, "label": "RTU主站"},
+    {"value": 1, "label": "TCP客户端"},
+    {"value": 2, "label": "TCP服务端"},
+    {"value": 3, "label": "RTU从站"},
+]
+
+
+@router.get("/protocols", response_model=BaseResponse)
+async def get_protocols():
+    """获取支持的协议列表"""
+    try:
+        return BaseResponse(
+            message="获取协议列表成功",
+            data={"protocols": PROTOCOL_OPTIONS, "conn_types": CONN_TYPE_OPTIONS},
+        )
+    except Exception as e:
+        log.error(f"获取协议列表失败: {e}")
+        return BaseResponse(code=500, message=f"获取协议列表失败: {e}", data={})
+
+
+@router.get("/serial-ports", response_model=BaseResponse)
+async def get_serial_ports():
+    """获取可用的串口列表"""
+    try:
+        from src.tools.serial_port_detector import SerialPortDetector
+        ports = SerialPortDetector.get_available_ports()
+        return BaseResponse(message="获取串口列表成功", data=ports)
+    except Exception as e:
+        log.error(f"获取串口列表失败: {e}")
+        return BaseResponse(code=500, message=f"获取串口列表失败: {e}", data=[])
+
+
+@router.post("/create", response_model=BaseResponse)
+async def create_channel(req: ChannelCreateRequest, request: Request):
+    """创建通道/设备"""
+    try:
+        existing = ChannelService.get_channel_by_code(req.code)
+        if existing:
+            return BaseResponse(code=400, message=f"设备编码 '{req.code}' 已存在，请使用其他编码")
+
+        if req.conn_type == 2:
+            all_channels = ChannelService.get_all_channels()
+            for ch in all_channels:
+                if ch.get("conn_type") == 2 and ch.get("port") == req.port:
+                    return BaseResponse(
+                        code=400,
+                        message=f"端口 {req.port} 已被设备 '{ch.get('name')}' 占用，请使用其他端口",
+                    )
+
+        from src.data.service.device_service import DeviceService
+        device_id = DeviceService.create_device(
+            code=req.code, name=req.name, device_type=0, group_id=req.group_id,
+        )
+        if device_id <= 0:
+            return BaseResponse(code=500, message="创建设备记录失败")
+
+        channel_id = ChannelService.create_channel(
+            code=req.code, name=req.name, device_id=device_id,
+            protocol_type=req.protocol_type, conn_type=req.conn_type,
+            ip=req.ip, port=req.port, com_port=req.com_port,
+            baud_rate=req.baud_rate, data_bits=req.data_bits,
+            stop_bits=req.stop_bits, parity=req.parity,
+            rtu_addr=req.rtu_addr if req.protocol_type == 3 else "1",
+        )
+
+        if channel_id > 0:
+            try:
+                device_controller = request.app.state.device_controller
+                builder = get_device_builder(channel_id, req.code)
+
+                channel_data_mock = {"protocol_type": req.protocol_type, "conn_type": req.conn_type}
+                protocol_enum = ChannelService.get_protocol_type(channel_data_mock)
+
+                if req.conn_type in [0, 3]:
+                    builder.setDeviceSerialConfig(
+                        serial_port=req.com_port or "", baudrate=req.baud_rate or 9600,
+                        databits=req.data_bits or 8, stopbits=req.stop_bits or 1,
+                        parity=req.parity or "E",
+                    )
+                else:
+                    if protocol_enum in [ProtocolType.ModbusTcpClient, ProtocolType.Iec104Client,
+                                          ProtocolType.Dlt645Client, ProtocolType.Iec61850Client]:
+                        builder.setDeviceNetConfig(port=req.port, ip=req.ip)
+                    else:
+                        builder.setDeviceNetConfig(port=req.port, ip=Config.DEFAULT_IP)
+
+                new_device = builder.makeGeneralDevice(
+                    device_id=channel_id, device_name=req.name,
+                    protocol_type=protocol_enum, is_start=False,
+                )
+                new_device.name = req.name
+                device_controller.device_list.append(new_device)
+                device_controller.device_map[new_device.name] = new_device
+                log.info(f"设备 {req.name} (ID: {channel_id}) 已在内存中动态创建")
+            except Exception as e:
+                log.error(f"内存同步创建设备失败: {e}")
+
+            return BaseResponse(
+                message="创建通道成功",
+                data={"channel_id": channel_id, "device_id": device_id},
+            )
+        else:
+            return BaseResponse(code=500, message="创建通道失败")
+
+    except Exception as e:
+        log.error(f"创建通道失败: {e}")
+        return BaseResponse(code=500, message=f"创建通道失败: {e}")
+
+
+@router.delete("/{channel_id}", response_model=BaseResponse)
+async def delete_channel(channel_id: int, request: Request):
+    """删除通道"""
+    try:
+        device_controller = request.app.state.device_controller
+        await device_controller.remove_device_by_id(channel_id)
+        success = ChannelService.delete_channel(channel_id)
+        if success:
+            return BaseResponse(message="删除通道成功", data=True)
+        else:
+            return BaseResponse(code=404, message="通道不存在", data=False)
+    except Exception as e:
+        log.error(f"删除通道失败: {e}")
+        return BaseResponse(code=500, message=f"删除通道失败: {e}", data=False)
+
+
+@router.get("/list", response_model=BaseResponse)
+async def get_channel_list():
+    """获取所有通道列表"""
+    try:
+        channels = ChannelService.get_all_channels()
+        return BaseResponse(message="获取通道列表成功", data=channels)
+    except Exception as e:
+        log.error(f"获取通道列表失败: {e}")
+        return BaseResponse(code=500, message=f"获取通道列表失败: {e}", data=[])
+
+
+@router.get("/{channel_id}", response_model=BaseResponse)
+async def get_channel_by_id(channel_id: int):
+    """获取单个通道详情"""
+    try:
+        channel = ChannelService.get_channel_by_id(channel_id)
+        if channel:
+            return BaseResponse(message="获取通道详情成功", data=channel)
+        else:
+            return BaseResponse(code=404, message="通道不存在")
+    except Exception as e:
+        log.error(f"获取通道详情失败: {e}")
+        return BaseResponse(code=500, message=f"获取通道详情失败: {e}")
+
+
+@router.put("/{channel_id}", response_model=BaseResponse)
+async def update_channel(channel_id: int, req: ChannelUpdateRequest, request: Request):
+    """更新通道配置"""
+    try:
+        existing = ChannelService.get_channel_by_id(channel_id)
+        if not existing:
+            return BaseResponse(code=404, message="通道不存在")
+
+        protocol_to_use = req.protocol_type if req.protocol_type is not None else existing.get("protocol_type", 1)
+
+        success = ChannelService.update_channel(
+            channel_id=channel_id, name=req.name,
+            protocol_type=req.protocol_type, conn_type=req.conn_type,
+            ip=req.ip, port=req.port, com_port=req.com_port,
+            baud_rate=req.baud_rate, data_bits=req.data_bits,
+            stop_bits=req.stop_bits, parity=req.parity,
+            rtu_addr=req.rtu_addr if protocol_to_use == 3 else "1",
+        )
+
+        if success:
+            try:
+                device_controller = request.app.state.device_controller
+                await reload_device_instance(device_controller, channel_id, is_start=False)
+            except Exception as e:
+                log.error(f"更新配置后重载设备失败: {e}")
+            return BaseResponse(message="更新通道成功", data=True)
+        else:
+            return BaseResponse(code=500, message="更新通道失败", data=False)
+
+    except Exception as e:
+        log.error(f"更新通道失败: {e}")
+        return BaseResponse(code=500, message=f"更新通道失败: {e}", data=False)

@@ -448,6 +448,16 @@ class DataReader:
                         self._log.error(f"Point {point.code} not found in client")
                         continue
 
+                    # 同步品质描述符（c104.Point.quality 在服务端上报时自动更新）
+                    # c104 库的品质位编码与应用层不同，需要转换
+                    if hasattr(c104_point, 'quality') and c104_point.quality is not None:
+                        try:
+                            from src.enums.points.iec104_quality import decode_quality_from_c104
+                            qd = decode_quality_from_c104(c104_point, point.frame_type)
+                            point.iec_quality = qd
+                        except Exception:
+                            pass
+
                     # float() 统一将 c104 值转为 Python float
                     # c104 库已内部完成类型解码（归一化值已转为 -1~+1 浮点数）
                     c104_value = float(c104_point.value) if c104_point.value is not None else None

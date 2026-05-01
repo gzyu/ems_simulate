@@ -321,6 +321,18 @@ class IEC104ClientHandler(ClientHandler):
         c104_value = self._client.read_point(
             io_address=point.address, frame_type=point.frame_type
         )
+
+        # 同步品质描述符（c104.Point.quality 在服务端上报时自动更新）
+        # c104 库的品质位编码与应用层不同，需要转换
+        try:
+            c104_point = self._client.station.get_point(io_address=point.address)
+            if c104_point and hasattr(c104_point, 'quality') and c104_point.quality is not None:
+                from src.enums.points.iec104_quality import decode_quality_from_c104
+                qd = decode_quality_from_c104(c104_point, point.frame_type)
+                point.iec_quality = qd
+        except Exception:
+            pass
+
         if c104_value is None:
             self._log.error("IEC104 客户端读取测点值失败")
             return None

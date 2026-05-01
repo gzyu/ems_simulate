@@ -91,35 +91,7 @@
           </el-form-item>
         </el-col>
       </el-row>
-      <!-- IEC104 类型选择器 -->
-      <el-row :gutter="20" v-if="isIec104">
-        <el-col :span="12">
-          <el-form-item label="IEC104类型" class="form-item">
-            <el-select v-model="metadataForm.iec_type_id" placeholder="选择ASDU类型" style="width: 100%" clearable>
-              <el-option
-                v-for="t in availableIec104Types"
-                :key="t.type_id"
-                :label="`${t.label} (${t.type_id})`"
-                :value="t.type_id"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-      </el-row>
-      <!-- IEC104 品质描述符 -->
-      <el-row :gutter="20" v-if="isIec104 && supportsQualityFlag">
-        <el-col :span="24">
-          <el-form-item label="品质描述符" class="form-item">
-            <div class="quality-flags">
-              <el-checkbox v-model="qualityFlags.ov" :disabled="!canOverflow" label="溢出(OV)" />
-              <el-checkbox v-model="qualityFlags.bl" label="闭锁(BL)" />
-              <el-checkbox v-model="qualityFlags.sb" label="取代(SB)" />
-              <el-checkbox v-model="qualityFlags.nt" label="不刷新(NT)" />
-              <el-checkbox v-model="qualityFlags.iv" label="无效(IV)" />
-            </div>
-          </el-form-item>
-        </el-col>
-      </el-row>
+
       <div class="button-group">
         <el-button type="primary" @click="saveMetadata">保存属性</el-button>
         <el-button @click="loadPointInfo">刷新</el-button>
@@ -132,25 +104,17 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { getPointInfo, editPointMetadata } from '@/api/pointApi';
-import { IEC104_TYPES_BY_FRAME_TYPE, decodeIec104Quality, encodeIec104Quality, supportsQuality as supportsQualityFlag, supportsOverflow } from '@/types/point';
 
 interface Props {
   deviceName: string;
   pointCode: string;
   active?: boolean;
-  protocolType?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   active: true
 });
 const emit = defineEmits(['update-success']);
-
-// 判断是否为 IEC104 协议
-const isIec104 = computed(() => {
-  const pt = props.protocolType || '';
-  return pt === 'Iec104Client' || pt === 'Iec104Server';
-});
 
 const metadataForm = reactive({
   name: '',
@@ -162,29 +126,10 @@ const metadataForm = reactive({
   add_coe: 0.0,
   frame_type: 0,
   bit: null as number | null,
-  iec_type_id: null as string | null,
-  iec_quality: 0,
-});
-
-// 品质描述符标志位
-const qualityFlags = reactive({
-  ov: false,
-  bl: false,
-  sb: false,
-  nt: false,
-  iv: false,
 });
 
 const isYcOrYt = computed(() => [0, 3].includes(metadataForm.frame_type));
 const isYxOrYk = computed(() => [1, 2].includes(metadataForm.frame_type));
-
-// 是否可以设置溢出标志（仅遥测和遥调）
-const canOverflow = computed(() => supportsOverflow(metadataForm.frame_type));
-
-// 获取当前帧类型可用的 IEC104 类型列表
-const availableIec104Types = computed(() => {
-  return IEC104_TYPES_BY_FRAME_TYPE[metadataForm.frame_type] || [];
-});
 
 // 加载点信息
 const loadPointInfo = async () => {
@@ -200,15 +145,6 @@ const loadPointInfo = async () => {
       metadataForm.add_coe = info.add_coe ?? 0.0;
       metadataForm.frame_type = info.frame_type ?? 0;
       metadataForm.bit = info.bit ?? null;
-      metadataForm.iec_type_id = info.iec_type_id ?? null;
-      metadataForm.iec_quality = info.iec_quality ?? 0;
-      // 解码品质描述符
-      const qd = decodeIec104Quality(metadataForm.iec_quality, metadataForm.frame_type);
-      qualityFlags.ov = qd.ov;
-      qualityFlags.bl = qd.bl;
-      qualityFlags.sb = qd.sb;
-      qualityFlags.nt = qd.nt;
-      qualityFlags.iv = qd.iv;
     }
   } catch (error) {
     console.error('加载点信息失败:', error);
@@ -218,8 +154,6 @@ const loadPointInfo = async () => {
 // 保存元数据
 const saveMetadata = async () => {
   try {
-    // 编码品质描述符为整数值
-    metadataForm.iec_quality = encodeIec104Quality(qualityFlags, metadataForm.frame_type);
     const result = await editPointMetadata(props.deviceName, props.pointCode, metadataForm);
     if (result) {
       ElMessage.success('测点属性已更新');
@@ -281,11 +215,5 @@ watch([() => props.deviceName, () => props.pointCode], (newVal) => {
   justify-content: center;
   gap: 20px;
   margin-top: 10px;
-}
-
-.quality-flags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
 }
 </style>

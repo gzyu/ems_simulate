@@ -45,7 +45,7 @@ class BasePoint:
             self._address = address
             self._hex_address = address
         else:
-            self._address: int = int(address, 16) if isinstance(address, str) else int(address)
+            self._address: int|str = int(address, 16) if isinstance(address, str) else int(address)
             self._hex_address: str = str(address)
             
         self._func_code: int = int(func_code)
@@ -65,7 +65,7 @@ class BasePoint:
         self.related_value: Dict[int, int] | None = None
         self.value_changed = Signal()
         self.is_signed = False
-        self.is_valid = None  # 数据是否有效（None:未知, True:成功, False:失败）
+        self.is_valid: Optional[bool]= None  # 数据是否有效（None:未知, True:成功, False:失败）
         self.is_locked_by_mapping = False # 是否被映射锁定（如果为True，则模拟器不应修改此值）
 
         # 变更追溯（默认开启）
@@ -73,7 +73,7 @@ class BasePoint:
         self._change_history_maxlen: int = 50
         self._change_history: deque[ChangeRecord] = deque(maxlen=self._change_history_maxlen)
 
-    def list(self) -> list:
+    def list(self) -> list[str|int|bool]:
         """返回测点属性列表，供表格显示使用"""
         return [
             self.rtu_addr,
@@ -99,7 +99,7 @@ class BasePoint:
         self._rtu_addr = rtu_addr
 
     @property
-    def address(self) -> int:
+    def address(self) -> int|str:
         return self._address
 
     @address.setter

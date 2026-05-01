@@ -49,13 +49,21 @@
                 </div>
               </el-tab-pane>
               <el-tab-pane label="属性编辑" name="测点编辑">
-                <EditPointMetadata
-                  :deviceName="deviceName"
-                  :pointCode="scope.row['测点编码']"
-                  :active="activeName === '测点编辑'"
-                  :protocolType="String(protocolType)"
-                  @update-success="(newCode) => handleMetadataUpdate(newCode, scope.row['测点编码'])"
-                />
+                <div class="metadata-grid">
+                  <EditPointMetadata
+                    :deviceName="deviceName"
+                    :pointCode="scope.row['测点编码']"
+                    :active="activeName === '测点编辑'"
+                    @update-success="(newCode) => handleMetadataUpdate(newCode, scope.row['测点编码'])"
+                  />
+                  <EditPointIec104
+                    :deviceName="deviceName"
+                    :pointCode="scope.row['测点编码']"
+                    :active="activeName === '测点编辑'"
+                    :protocolType="String(protocolType)"
+                    @update-success="emit('refresh')"
+                  />
+                </div>
               </el-tab-pane>
               
               <el-tab-pane label="测点映射" name="测点映射">
@@ -255,6 +263,19 @@ import { QuestionFilled, Download, Edit, Delete, CircleCheckFilled, CircleCloseF
 import { ElMessage } from 'element-plus'
 import { getPointType, PointType } from '@/types/point'
 import { readSinglePoint, deletePoint } from '@/api/pointApi'
+import {
+  INT_REGISTER_DECODE_LIST,
+  LONG_REGISTER_DECODE_LIST,
+  FLOAT_REGISTER_DECODE_LIST,
+  COLUMN_WIDTH_MAP,
+  FRAME_TYPE_FILTERS,
+  IEC104_TYPE_FILTERS,
+  FRAME_TYPE_TAG_MAP,
+  getIec104TagType,
+  DECODE_CODE_TOOLTIP,
+  FUNC_CODE_TOOLTIP,
+  CLIENT_PROTOCOL_NAMES,
+} from '@/constants/table'
 
 import SingleRegister from '../register/SingleRegister.vue'
 import LongRegister from '../register/LongRegister.vue'
@@ -262,6 +283,7 @@ import FloatRegister from '../register/FloatRegister.vue'
 import EditPointLimit from '../point/EditPointLimit.vue'
 import PointSimulator from '../point/PointSimulator.vue'
 import EditPointMetadata from '../point/EditPointMetadata.vue'
+import EditPointIec104 from '../point/EditPointIec104.vue'
 import PointMappingConfig from '../point/PointMappingConfig.vue'
 import PointChangeHistory from '../point/PointChangeHistory.vue'
 import WritePointDialog from './WritePointDialog.vue'
@@ -289,9 +311,9 @@ watch(deviceName, () => {
   expandedRowKeys.value = [];
 });
 
-const intRegisterDecodeList = ["0x10","0x11","0x20","0x21","0x22","0xB0","0xB1","0xC0","0xC1"];
-const longRegisterDecodeList = ["0x40","0x41","0x43","0x44","0xD0","0xD1","0xD4","0xD5","0x60","0x61","0xE0","0xE1"];
-const floatRegisterDecodeList = ["0x42","0x45","0xD2","0xD3","0x62","0xE2"];
+const intRegisterDecodeList = INT_REGISTER_DECODE_LIST;
+const longRegisterDecodeList = LONG_REGISTER_DECODE_LIST;
+const floatRegisterDecodeList = FLOAT_REGISTER_DECODE_LIST;
 
 const isModbus = computed(() => {
   const t = props.protocolType;
@@ -301,8 +323,8 @@ const isModbus = computed(() => {
 const isDlt645 = computed(() => typeof props.protocolType === 'string' && props.protocolType.includes('Dlt645'));
 
 const isClientDevice = computed(() => {
-  const t = props.protocolType;
-  return ['ModbusTcpClient', 'Iec104Client', 'Dlt645Client'].includes(String(t));
+  const t = String(props.protocolType);
+  return (CLIENT_PROTOCOL_NAMES as readonly string[]).includes(t);
 });
 
 const readingPoints = reactive<Record<string, boolean>>({});
@@ -339,32 +361,8 @@ const hiddenColumns = computed(() => {
 const filteredTableHeader = computed(() => props.tableHeader.filter(h => !hiddenColumns.value.includes(h)));
 const filteredTableHeaderWithoutAddress = computed(() => filteredTableHeader.value);
 
-// 基于列名的宽度映射，根据内容特点设置合适宽度
-const columnWidthMap: Record<string, number> = {
-  '测点编码': 150,
-  '测点名称': 200,
-  '寄存器值': 120,
-  '真实值': 120,
-  '乘法系数': 100,
-  '加法系数': 100,
-  '位': 50,
-  '功能码': 90,
-  '解析码': 90,
-  '帧类型': 80,
-  // IEC104 协议特有列
-  'IEC104类型': 160,
-  '类型标识': 100,
-  '传送原因': 100,
-  '公共地址': 100,
-  '信息体地址': 120,
-  // DLT645 协议特有列
-  '数据标识': 120,
-  '数据长度': 80,
-  // 状态列
-  '状态': 80,
-  // 通用默认
-  'default': 100
-};
+// 列宽度映射已提取到 @/constants/table
+const columnWidthMap = COLUMN_WIDTH_MAP;
 
 // 根据当前可见列动态生成宽度列表
 const addressFilteredWidthList = computed(() => {
@@ -380,38 +378,9 @@ const handleExpand = (row: any, rows: any[]) => {
   expandedRowKeys.value = isNowExp ? [...expandedRowKeys.value, code] : expandedRowKeys.value.filter(c => c !== code);
 };
 
-const tagFilters = [
-  { text: '遥测', value: PointType.YC }, { text: '遥信', value: PointType.YX },
-  { text: '遥控', value: PointType.YK }, { text: '遥调', value: PointType.YT }
-];
+const tagFilters = FRAME_TYPE_FILTERS;
 
-const iec104TypeFilters = [
-  { text: '短浮点遥测', value: '短浮点遥测' },
-  { text: '归一化遥测', value: '归一化遥测' },
-  { text: '标度化遥测', value: '标度化遥测' },
-  { text: '归一化遥测(不带品质)', value: '归一化遥测(不带品质)' },
-  { text: '归一化遥测(CP56)', value: '归一化遥测(CP56)' },
-  { text: '标度化遥测(CP56)', value: '标度化遥测(CP56)' },
-  { text: '短浮点遥测(CP56)', value: '短浮点遥测(CP56)' },
-  { text: '单点遥信', value: '单点遥信' },
-  { text: '单点遥信(带时标)', value: '单点遥信(带时标)' },
-  { text: '双点遥信', value: '双点遥信' },
-  { text: '双点遥信(带时标)', value: '双点遥信(带时标)' },
-  { text: '单点遥信(CP56)', value: '单点遥信(CP56)' },
-  { text: '双点遥信(CP56)', value: '双点遥信(CP56)' },
-  { text: '单点遥控', value: '单点遥控' },
-  { text: '双点遥控', value: '双点遥控' },
-  { text: '步调节命令', value: '步调节命令' },
-  { text: '单点遥控(CP56)', value: '单点遥控(CP56)' },
-  { text: '双点遥控(CP56)', value: '双点遥控(CP56)' },
-  { text: '步调节命令(CP56)', value: '步调节命令(CP56)' },
-  { text: '设定值(短浮点)', value: '设定值(短浮点)' },
-  { text: '设定值(归一化)', value: '设定值(归一化)' },
-  { text: '设定值(标度化)', value: '设定值(标度化)' },
-  { text: '设定值归一化(CP56)', value: '设定值归一化(CP56)' },
-  { text: '设定值标度化(CP56)', value: '设定值标度化(CP56)' },
-  { text: '设定值短浮点(CP56)', value: '设定值短浮点(CP56)' },
-];
+const iec104TypeFilters = IEC104_TYPE_FILTERS;
 
 const handleFilterChange = (f: any) => emit('update:activeFilters', f);
 const handleSortChange = ({ prop, order }: { prop: string, order: string | null }) => {
@@ -450,19 +419,9 @@ const filteredData = computed(() => {
 
 const handleSizeChange = (s: number) => { emit("update:pageSize", s); emit("update:pageIndex", 1); };
 const handleCurrentChange = (p: number) => emit("update:pageIndex", p);
-const getTagType = (v: string) => {
-  const map: any = { '遥测': 'success', '遥信': 'warning', '遥控': 'danger', '遥调': 'info' };
-  return map[v] || 'info';
-};
+const getTagType = (v: string) => FRAME_TYPE_TAG_MAP[v] || 'info';
 
-const getIec104TagType = (label: string) => {
-  if (label.includes('遥测')) return 'success';
-  if (label.includes('遥信')) return 'warning';
-  if (label.includes('遥控')) return 'danger';
-  if (label.includes('遥调') || label.includes('设定值')) return 'info';
-  if (label.includes('步调节')) return 'danger';
-  return 'info';
-};
+// getIec104TagType 已提取到 @/constants/table
 
 const updatePointData = (idx: number, real: number, reg: number) => {
   if (idx !== -1) { props.tableData[idx][7] = reg; props.tableData[idx][8] = real; }
@@ -530,8 +489,8 @@ const shouldShowTooltip = (header: string) => {
   return ['解析码', '功能码'].includes(header);
 };
 
-const toolTip = "解析码说明: 16位(0x20/21/C0/C1), 32位整(0x40/41/D0/D1), 32位浮(0x42/D2), 64位(0x60/61/E0/E1)";
-const funcCodeToolTip = "01:读线圈 02:读离散输入 03:读保持寄存器 04:读输入寄存器";
+const toolTip = DECODE_CODE_TOOLTIP;
+const funcCodeToolTip = FUNC_CODE_TOOLTIP;
 </script>
 
 <style lang="scss" scoped>
@@ -611,6 +570,14 @@ const funcCodeToolTip = "01:读线圈 02:读离散输入 03:读保持寄存器 0
   align-items: flex-start;
   gap: 16px;
   flex-wrap: wrap;
+}
+
+/* 属性编辑区域左右分布 */
+.metadata-grid {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 16px;
 }
 
 /* 内部Tabs紧凑化 */
