@@ -234,6 +234,19 @@ class Device:
         self.protocol_type = ProtocolType.Iec61850Client
         self.initProtocol()
 
+    def get_iec61850_connect_progress(self) -> dict:
+        """获取 IEC61850 客户端连接进度
+
+        Returns:
+            {"phase": str, "progress": int, "connecting": bool}
+            非 IEC61850 客户端返回空 dict
+        """
+        if self.protocol_type != ProtocolType.Iec61850Client:
+            return {}
+        if not self.protocol_handler:
+            return {}
+        return self.protocol_handler.get_connect_progress()
+
     def _on_iec61850_points_discovered(self, discovered_points: list) -> None:
         """处理 IEC61850 客户端发现的测点，自动注册到系统
 
@@ -261,7 +274,8 @@ class Device:
             # 优先使用 code 字段（短编码），否则回退到 address
             auto_code = dp.get("code", str(addr))
             ft_label = frame_type_names.get(ft, str(ft))
-            auto_name = dp.get("code", str(addr))
+            auto_name = dp.get("name", dp.get("code", str(addr)))
+            point_fc = dp.get("fc", "")
 
             point = None
             if ft == 0:  # 遥测
@@ -273,6 +287,7 @@ class Device:
                     code=auto_code,
                     value=0,
                     frame_type=0,
+                    fc=point_fc,
                 )
             elif ft == 1:  # 遥信
                 point = Yx(
@@ -283,6 +298,7 @@ class Device:
                     code=auto_code,
                     value=0,
                     frame_type=1,
+                    fc=point_fc,
                 )
             elif ft == 2:  # 遥控
                 point = Yk(
@@ -293,6 +309,7 @@ class Device:
                     code=auto_code,
                     value=0,
                     frame_type=2,
+                    fc=point_fc,
                 )
             elif ft == 3:  # 遥调
                 point = Yt(
@@ -303,6 +320,7 @@ class Device:
                     code=auto_code,
                     value=0,
                     frame_type=3,
+                    fc=point_fc,
                 )
 
             if point:
@@ -316,11 +334,6 @@ class Device:
                 self.simulation_controller.set_point_status(point, True)
 
                 added_count += 1
-                self.log.info(
-                    f"IEC61850 自动添加测点: {auto_code} ({auto_name}), "
-                    f"address={addr}, frame_type={ft}, ref={ref}"
-                )
-
         if added_count > 0:
             self.log.info(f"IEC61850 自动发现并添加了 {added_count} 个测点")
         else:

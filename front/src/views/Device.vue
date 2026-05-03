@@ -68,6 +68,18 @@
     </el-row>
 
     <!-- 第三行：从站/测点数据 -->
+    <!-- IEC61850 连接进度条 -->
+    <el-row v-if="iec61850Connecting" class="nodes progress-row" :span="24">
+      <el-progress
+        :percentage="iec61850ProgressPercent"
+        :stroke-width="20"
+        :text-inside="true"
+        :format="() => iec61850PhaseText"
+        striped
+        striped-flow
+        style="width: 100%"
+      />
+    </el-row>
     <Slave ref="slaveRef" />
     
     <!-- 报文查看对话框 -->
@@ -90,7 +102,9 @@ import {
   stopSimulation,
   startDevice,
   stopDevice,
+  getIEC61850ConnectProgress,
 } from "@/api/deviceApi";
+import type { IEC61850ConnectProgress } from "@/api/deviceApi";
 import { CaretRight, VideoPause, Document } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 
@@ -144,6 +158,64 @@ const buttonText = computed(() => simulationStatus.value ? "停止" : "开始");
 const isDeviceProcessing = ref<boolean>(false);
 const isSimProcessing = ref<boolean>(false);
 
+// IEC61850 连接进度
+const iec61850Connecting = ref(false);
+const iec61850ConnectProgress = ref<IEC61850ConnectProgress | null>(null);
+const iec61850PhaseLabel: Record<string, string> = {
+  idle: '准备中...',
+  connecting: '正在连接服务器...',
+  discovering: '正在发现数据模型...',
+  done: '连接完成',
+  failed: '连接失败',
+};
+
+const isIec61850Client = computed(() => {
+  return communicationType.value && String(communicationType.value) === 'Iec61850Client';
+});
+
+const iec61850ProgressPercent = computed(() => {
+  if (!iec61850ConnectProgress.value) return 0;
+  return iec61850ConnectProgress.value.progress || 0;
+});
+
+const iec61850PhaseText = computed(() => {
+  if (!iec61850ConnectProgress.value) return '';
+  return iec61850PhaseLabel[iec61850ConnectProgress.value.phase] || '';
+});
+
+let iec61850ProgressTimer: number | null = null;
+
+const startIec61850ProgressPolling = () => {
+  stopIec61850ProgressPolling();
+  iec61850Connecting.value = true;
+  iec61850ConnectProgress.value = null;
+  iec61850ProgressTimer = window.setInterval(async () => {
+    const progress = await getIEC61850ConnectProgress(routeName.value);
+    if (progress) {
+      iec61850ConnectProgress.value = progress;
+      if (progress.phase === 'done' || progress.phase === 'failed') {
+        stopIec61850ProgressPolling();
+        if (progress.phase === 'done') {
+          deviceStatus.value = true;
+          deviceStatusStr.value = '运行中';
+          ElMessage.success('IEC 61850 设备连接成功');
+          slaveRef.value?.reloadDatas();
+        } else {
+          ElMessage.error('IEC 61850 设备连接失败');
+        }
+      }
+    }
+  }, 500);
+};
+
+const stopIec61850ProgressPolling = () => {
+  if (iec61850ProgressTimer) {
+    clearInterval(iec61850ProgressTimer);
+    iec61850ProgressTimer = null;
+  }
+  iec61850Connecting.value = false;
+};
+
 const toggleDevice = async () => {
   isDeviceProcessing.value = true;
   try {
@@ -161,14 +233,20 @@ const toggleDevice = async () => {
       }
     } else {
       if (await startDevice(routeName.value)) {
-        deviceStatus.value = true;
-        deviceStatusStr.value = "运行中";
-        ElMessage.success("启动设备成功");
+        if (isIec61850Client.value) {
+          // IEC61850: 后台连接中，启动进度轮询
+          deviceStatusStr.value = "连接中";
+          startIec61850ProgressPolling();
+        } else {
+          deviceStatus.value = true;
+          deviceStatusStr.value = "运行中";
+          ElMessage.success("启动设备成功");
+        }
       } else {
         ElMessage.error("启动设备失败");
       }
     }
-  } catch (error: any) { 
+  } catch (error: any) {
     console.error(error);
     // error message is handled by global interceptor
   }
@@ -195,6 +273,18 @@ const fetchDeviceInfo = async () => {
     const simuStatus = info.get("simulation_status");
     simulationStatus.value = simuStatus;
     simulationStatusStr.value = simuStatus === true ? "运行中" : "停止";
+
+    // IEC61850 客户端：如果设备未运行，检查是否正在后台连接中
+    if (!serverStatus && String(communicationType.value) === 'Iec61850Client') {
+      const progress = await getIEC61850ConnectProgress(routeName.value);
+      if (progress && progress.connecting) {
+        // 正在连接中，启动进度轮询
+        iec61850Connecting.value = true;
+        deviceStatusStr.value = '连接中';
+        iec61850ConnectProgress.value = progress;
+        startIec61850ProgressPolling();
+      }
+    }
   } catch (error: any) { 
     console.error(error); 
     // error message is handled by global interceptor
@@ -237,16 +327,29 @@ const fetchDeviceStatus = async () => {
     const serverStatus = info.get("server_status");
 
     // 更新显示状态（不受防抖影响，UI 始终反映最新值）
-    deviceStatus.value = serverStatus;
-    deviceStatusStr.value = serverStatus === true ? "运行中" : "停止";
+    // IEC61850 连接中时，不覆盖"连接中"状态（后端 is_running 在连接完成前为 false）
+    if (iec61850Connecting.value) {
+      // 连接完成后才更新设备状态
+      if (serverStatus === true) {
+        deviceStatus.value = true;
+        deviceStatusStr.value = "运行中";
+      }
+    } else {
+      deviceStatus.value = serverStatus;
+      deviceStatusStr.value = serverStatus === true ? "运行中" : "停止";
+    }
 
     // IEC 61850 客户端：检测到连接从 false 变为 true 时立即刷新测点表格
     // （不需要等防抖，因为测点发现完成后数据立即可用）
     if (serverStatus === true && prevServerStatus === false) {
       if (communicationType.value && String(communicationType.value) === "Iec61850Client") {
         slaveRef.value?.reloadDatas();
+        stopIec61850ProgressPolling();
       }
     }
+    // 注意：不在 serverStatus === false 时停止进度轮询
+    // 因为 IEC61850 后台连接期间 is_running 仍为 false，这属于正常状态
+    // 进度轮询会通过 getIEC61850ConnectProgress 的 phase 自动判断完成或失败
     prevServerStatus = serverStatus;
 
     // 防抖逻辑：只有状态稳定后才弹出通知
@@ -311,6 +414,7 @@ onDeactivated(() => {
 
 onUnmounted(() => {
   stopStatusPolling();
+  stopIec61850ProgressPolling();
 });
 
 watch(() => route.fullPath, async () => {
@@ -393,6 +497,13 @@ watch(() => route.fullPath, async () => {
 .btn-info {
   background-color: #6366f1;
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+}
+
+.progress-row {
+  :deep(.el-progress-bar__innerText) {
+    font-size: 12px;
+    color: #fff;
+  }
 }
 
 .simulation-select {

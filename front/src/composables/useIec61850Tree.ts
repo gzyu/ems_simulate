@@ -24,6 +24,7 @@ export interface TreeNode {
   deviceName?: string;
   type?: string;
   value?: string;
+  iec61850Level?: 'category' | 'ld' | 'ln';
 }
 
 /**
@@ -34,22 +35,61 @@ export function buildIEC61850Children(structure: any, deviceName: string, keyPre
   IEC61850_CATEGORIES.forEach((cat) => {
     const items = structure[cat.key] || [];
     if (items.length > 0) {
-      const categoryChildren: TreeNode[] = items.map((item: string, itemIndex: number) => ({
-        nodeKey: `${keyPrefix}-${deviceName}-${cat.key}-${itemIndex}`,
-        label: item,
-        isGroup: false,
-        id: 0,
-        isIec61850Child: true,
-        name: item,
-        deviceName: deviceName,
-        type: cat.label,
-      }));
+      let categoryChildren: TreeNode[];
+
+      if (cat.key === 'Data Model') {
+        // Data Model 返回层级结构: [{name: "LD0", children: ["LLN0", "MMXU1"]}, ...]
+        categoryChildren = items.map((ldItem: any, ldIndex: number) => {
+          const ldName = typeof ldItem === 'string' ? ldItem : ldItem.name;
+          const lnList = typeof ldItem === 'object' && ldItem.children ? ldItem.children : [];
+          const lnChildren: TreeNode[] = lnList.map((ln: string, lnIndex: number) => ({
+            nodeKey: `${keyPrefix}-${deviceName}-${cat.key}-${ldIndex}-${lnIndex}`,
+            label: ln,
+            isGroup: false,
+            id: 0,
+            isIec61850Child: true,
+            iec61850Level: 'ln' as const,
+            name: ln,
+            deviceName: deviceName,
+            type: cat.label,
+            value: `${ldName}/${ln}`,
+          }));
+          return {
+            nodeKey: `${keyPrefix}-${deviceName}-${cat.key}-${ldIndex}`,
+            label: ldName,
+            isGroup: lnChildren.length > 0,
+            id: 0,
+            isIec61850Child: true,
+            iec61850Level: 'ld' as const,
+            name: ldName,
+            deviceName: deviceName,
+            type: cat.label,
+            value: ldName,
+            children: lnChildren.length > 0 ? lnChildren : undefined,
+          };
+        });
+      } else {
+        // 其他分类: 仍然为扁平列表
+        categoryChildren = items.map((item: string, itemIndex: number) => ({
+          nodeKey: `${keyPrefix}-${deviceName}-${cat.key}-${itemIndex}`,
+          label: item,
+          isGroup: false,
+          id: 0,
+          isIec61850Child: true,
+          iec61850Level: 'ld' as const,
+          name: item,
+          deviceName: deviceName,
+          type: cat.label,
+        }));
+      }
+
       children.push({
         nodeKey: `${keyPrefix}-${deviceName}-${cat.key}`,
         label: cat.label,
         isGroup: true,
         id: 0,
         isIec61850Child: true,
+        iec61850Level: 'category' as const,
         name: cat.label,
         deviceName: deviceName,
         type: cat.label,
@@ -62,6 +102,7 @@ export function buildIEC61850Children(structure: any, deviceName: string, keyPre
         isGroup: false,
         id: 0,
         isIec61850Child: true,
+        iec61850Level: 'category' as const,
         name: cat.label,
         deviceName: deviceName,
         type: cat.label,

@@ -19,7 +19,7 @@
           </el-form-item>
         </el-col>
       </el-row>
-      <el-row :gutter="20" v-if="supportsQualityFlag">
+      <el-row :gutter="20" v-if="supportsQualityFlag(iec104Form.frame_type)">
         <el-col :span="24">
           <el-form-item label="品质描述符" class="form-item">
             <div class="quality-flags">

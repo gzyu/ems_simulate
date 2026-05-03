@@ -1,7 +1,7 @@
 <template>
   <div class="modern-table-container">
     <el-table
-      :data="filteredData"
+      :data="displayData"
       class="custom-table"
       :cell-class-name="() => 'modern-cell'"
       :header-cell-class-name="() => 'modern-header-cell'"
@@ -10,14 +10,15 @@
       :row-key="getRowKey"
       @expand-change="handleExpand"
       :expand-row-keys="expandedRowKeys"
+      :row-class-name="isIec61850 ? iec61850RowClassName : undefined"
       border
       stripe
       style="width: 100%"
     >
-      <!-- 展开详情区域 -->
+      <!-- 展开详情区域 (DO 行不显示, DA 行正常显示) -->
       <el-table-column type="expand">
         <template #default="scope">
-          <div class="expand-wrapper">
+          <div v-if="!scope.row._isDoRow && !scope.row._isVirtualDa" class="expand-wrapper">
             <el-tabs v-model="activeName" class="inner-tabs" lazy>
               <el-tab-pane label="配置与控制" name="数据解析和设置">
                 <div class="control-grid">
@@ -100,18 +101,19 @@
         </template>
       </el-table-column>
 
-      <!-- 地址列：合并10进制和16进制 -->
+      <!-- 地址列 -->
       <el-table-column
         label="地址"
         prop="地址"
         sortable="custom"
-        :min-width="130"
+        :min-width="isIec61850 ? 200 : 130"
         show-overflow-tooltip
       >
         <template #header>
           <div class="header-content address-header">
             <span>地址</span>
             <el-switch
+              v-if="!isIec61850"
               v-model="showHexAddress"
               size="small"
               inline-prompt
@@ -122,9 +124,61 @@
           </div>
         </template>
         <template #default="scope">
-          <span class="cell-text">
+          <span v-if="scope.row._isDoRow" class="cell-text do-address" @click.stop="toggleDoExpand(scope.row._doRef)">
+            <el-icon class="do-expand-icon" :class="{ 'is-expanded': iec61850ExpandedDoKeys.includes(scope.row._doRef) }">
+              <ArrowRight />
+            </el-icon>
+            {{ scope.row._doName }}
+            <el-tag size="small" effect="plain" class="do-da-tag do-tag">DO</el-tag>
+            <span class="do-badge">{{ scope.row._daCount }} 项</span>
+          </span>
+          <span v-else-if="scope.row._isDaRow" class="cell-text da-address" :class="{ 'is-struct-da': scope.row._isStructDa }" @click.stop="scope.row._isStructDa && toggleDaExpand(`${scope.row._doRef}.${scope.row._daPath}`)">
+            <el-icon v-if="scope.row._isStructDa" class="da-expand-icon" :class="{ 'is-expanded': iec61850ExpandedDaKeys.includes(`${scope.row._doRef}.${scope.row._daPath}`) }">
+              <ArrowRight />
+            </el-icon>
+            {{ scope.row._daDisplayName || scope.row._daPath || scope.row['地址'] }}
+            <el-tag size="small" effect="plain" class="do-da-tag da-tag">DA</el-tag>
+            <span v-if="scope.row._isStructDa" class="do-badge">{{ scope.row._bdaCount }} 项</span>
+          </span>
+          <span v-else-if="scope.row._isBdaRow" class="cell-text bda-address">
+            {{ scope.row._bdaName || scope.row._daPath }}
+            <el-tag size="small" effect="plain" class="do-da-tag bda-tag">BDA</el-tag>
+          </span>
+          <span v-else class="cell-text">
             {{ showHexAddress ? scope.row['16进制地址'] : scope.row['地址'] }}
           </span>
+        </template>
+      </el-table-column>
+
+      <!-- IEC61850 FC 列 -->
+      <el-table-column
+        v-if="isIec61850"
+        label="FC"
+        :width="70"
+        :show-overflow-tooltip="false"
+      >
+        <template #default="scope">
+          <el-tag
+            v-if="scope.row._fc && !scope.row._isDoRow"
+            :color="IEC61850_FC_COLORS[scope.row._fc] || '#6b7280'"
+            effect="dark"
+            size="small"
+            class="fc-tag"
+          >
+            {{ scope.row._fc }}
+          </el-tag>
+        </template>
+      </el-table-column>
+
+      <!-- IEC61850 DA路径列 -->
+      <el-table-column
+        v-if="isIec61850"
+        label="DA路径"
+        :width="120"
+        show-overflow-tooltip
+      >
+        <template #default="scope">
+          <span v-if="scope.row._daPath" class="cell-text da-path">{{ scope.row._daPath }}</span>
         </template>
       </el-table-column>
 
@@ -177,22 +231,57 @@
             <el-icon v-else-if="scope.row[header] === '失败'" color="#F56C6C" size="20"><CircleCloseFilled /></el-icon>
             <el-icon v-else color="#909399" size="20"><RemoveFilled /></el-icon>
           </div>
-          <span v-else class="cell-text" :class="{ 'high-contrast': header === '测点编码' }">
-            {{ scope.row[header] }}
+          <span v-else class="cell-text" :class="{
+            'high-contrast': header === '测点编码',
+            'do-name': scope.row._isDoRow && header === '测点名称',
+          }">
+            {{ (scope.row._isBdaRow && header === '测点名称') ? (scope.row._bdaName || scope.row._daPath) : (scope.row._isDaRow && header === '测点名称' && scope.row._daDisplayName) ? scope.row._daDisplayName : scope.row[header] }}
           </span>
         </template>
       </el-table-column>
 
-      <!-- 操作列：客户端显示读取/写入，所有设备显示删除 -->
+      <!-- 操作列 -->
       <el-table-column
         label="操作"
-        :width="isClientDevice ? 240 : 100"
+        :width="isClientDevice || isIec61850WithActions ? 240 : 100"
         fixed="right"
       >
         <template #default="scope">
-          <div class="action-buttons">
+          <div v-if="!scope.row._isDoRow && !scope.row._isVirtualDa && scope.row['测点编码']" class="action-buttons">
+            <!-- IEC61850 客户端: 读取 (所有行可读) -->
             <el-button
-              v-if="isClientDevice"
+              v-if="isIec61850Client"
+              type="primary"
+              size="small"
+              :icon="Download"
+              @click="handleIec61850ReadPoint(scope.row['测点编码'])"
+              :loading="readingPoints[scope.row['测点编码']]"
+            >
+              读取
+            </el-button>
+            <!-- IEC61850 服务端: 写入 (所有行可写，仿真设值) -->
+            <el-button
+              v-if="isIec61850Server"
+              type="success"
+              size="small"
+              :icon="Edit"
+              @click="handleIec61850WritePoint(scope.row)"
+            >
+              写入
+            </el-button>
+            <!-- IEC61850 客户端: 写入 (仅遥控/遥调，发送控制命令) -->
+            <el-button
+              v-if="isIec61850Client && [PointType.YK, PointType.YT].includes(getPointType(scope.row['帧类型']))"
+              type="success"
+              size="small"
+              :icon="Edit"
+              @click="handleIec61850WritePoint(scope.row)"
+            >
+              写入
+            </el-button>
+            <!-- 非 IEC61850 客户端: 读取 -->
+            <el-button
+              v-if="isClientDevice && !isIec61850Client"
               type="primary"
               size="small"
               :icon="Download"
@@ -201,8 +290,9 @@
             >
               读取
             </el-button>
+            <!-- 非 IEC61850 客户端: 写入 (仅遥控/遥调) -->
             <el-button
-              v-if="isClientDevice && [PointType.YK, PointType.YT].includes(getPointType(scope.row['帧类型']))"
+              v-if="isClientDevice && !isIec61850Client && [PointType.YK, PointType.YT].includes(getPointType(scope.row['帧类型']))"
               type="success"
               size="small"
               :icon="Edit"
@@ -211,6 +301,7 @@
               写入
             </el-button>
             <el-popconfirm
+              v-if="!isIec61850"
               title="确定要删除这个测点吗？"
               confirm-button-text="删除"
               cancel-button-text="取消"
@@ -242,7 +333,7 @@
         :page-size="pageSize"
         background
         layout="total, sizes, prev, pager, next, jumper"
-        :total="total"
+        :total="effectiveTotal"
       />
     </div>
   </div>
@@ -254,15 +345,26 @@
     :pointType="currentPoint.type"
     @success="handleWriteSuccess"
   />
+  <!-- IEC61850 专用写入对话框 -->
+  <Iec61850WriteDialog
+    v-model="iec61850WriteDialogVisible"
+    :channelId="channelId!"
+    :pointCode="iec61850WritePointData.code"
+    :currentValue="iec61850WritePointData.value"
+    :pointType="iec61850WritePointData.type"
+    @success="handleWriteSuccess"
+  />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, reactive, watch, type PropType } from 'vue'
 import { useRoute } from "vue-router"
-import { QuestionFilled, Download, Edit, Delete, CircleCheckFilled, CircleCloseFilled, RemoveFilled } from "@element-plus/icons-vue"
+import { QuestionFilled, Download, Edit, Delete, CircleCheckFilled, CircleCloseFilled, RemoveFilled, ArrowRight } from "@element-plus/icons-vue"
 import { ElMessage } from 'element-plus'
 import { getPointType, PointType } from '@/types/point'
 import { readSinglePoint, deletePoint } from '@/api/pointApi'
+import { iec61850ReadPoint } from '@/api/channelApi'
+import type { IEC61850TreeDataResponse } from '@/api/channelApi'
 import {
   INT_REGISTER_DECODE_LIST,
   LONG_REGISTER_DECODE_LIST,
@@ -287,6 +389,23 @@ import EditPointIec104 from '../point/EditPointIec104.vue'
 import PointMappingConfig from '../point/PointMappingConfig.vue'
 import PointChangeHistory from '../point/PointChangeHistory.vue'
 import WritePointDialog from './WritePointDialog.vue'
+import Iec61850WriteDialog from './Iec61850WriteDialog.vue'
+
+// ===== IEC61850 树形表格常量 =====
+
+/** FC → 颜色映射 (类似 IECSCOUT) */
+const IEC61850_FC_COLORS: Record<string, string> = {
+  'MX': '#3b82f6',   // 蓝色 - 测量
+  'ST': '#10b981',   // 绿色 - 状态
+  'CO': '#f59e0b',   // 橙色 - 控制
+  'CF': '#8b5cf6',   // 紫色 - 配置
+  'DC': '#6b7280',   // 灰色 - 描述
+  'EX': '#ef4444',   // 红色 - 扩展
+  'SG': '#06b6d4',   // 青色 - 设定组
+  'SR': '#6b7280',   // 灰色 - 替代
+  'OR': '#f97316',   // 深橙 - 操作
+  'BL': '#94a3b8',   // 浅灰 - 阻塞
+}
 
 const props = defineProps({
   slaveId: { type: Number, required: true },
@@ -296,7 +415,10 @@ const props = defineProps({
   pageSize: { type: Number, required: true },
   pageIndex: { type: Number, required: true },
   activeFilters: { type: Object as PropType<any>, required: true },
-  protocolType: { type: [Number, String] as PropType<number | string>, default: 1 }
+  protocolType: { type: [Number, String] as PropType<number | string>, default: 1 },
+  isIec61850: { type: Boolean, default: false },
+  iec61850TreeData: { type: Object as PropType<IEC61850TreeDataResponse | null>, default: null },
+  channelId: { type: Number as PropType<number | null>, default: null },
 });
 
 const emit = defineEmits(['update:pageSize', 'update:pageIndex', 'update:activeFilters', 'refresh', 'sort-change']);
@@ -327,6 +449,19 @@ const isClientDevice = computed(() => {
   return (CLIENT_PROTOCOL_NAMES as readonly string[]).includes(t);
 });
 
+const isIec61850Server = computed(() => {
+  return props.isIec61850 && String(props.protocolType) === 'Iec61850Server';
+});
+
+const isIec61850Client = computed(() => {
+  return props.isIec61850 && String(props.protocolType) === 'Iec61850Client';
+});
+
+/** IEC61850 设备是否显示操作按钮 */
+const isIec61850WithActions = computed(() => {
+  return isIec61850Server.value || isIec61850Client.value;
+});
+
 const readingPoints = reactive<Record<string, boolean>>({});
 const deletingPoints = reactive<Record<string, boolean>>({});
 const showHexAddress = ref(false);
@@ -350,9 +485,19 @@ const hiddenColumns = computed(() => {
     hidden.push('IEC104类型');
   }
   
-  // 非客户端设备，隐藏状态列
-  if (!isClientDevice.value) {
+  // 非客户端设备且非 IEC61850 设备，隐藏状态列
+  if (!isClientDevice.value && !props.isIec61850) {
     hidden.push('状态');
+  }
+
+  // IEC61850 协议隐藏无意义列
+  if (props.isIec61850) {
+    hidden.push('寄存器值', '乘法系数', '加法系数', '帧类型');
+  }
+
+  // 非 IEC61850 协议隐藏 FC 列 (IEC61850 通过专用列渲染 FC)
+  if (!props.isIec61850) {
+    hidden.push('FC');
   }
   
   return hidden;
@@ -371,11 +516,49 @@ const addressFilteredWidthList = computed(() => {
   });
 });
 
-const getRowKey = (row: any) => row["测点编码"];
+const getRowKey = (row: any) => {
+  if (row._isDoRow) return row._rowKey;
+  return row["测点编码"];
+};
 const handleExpand = (row: any, rows: any[]) => {
+  if (row._isDoRow) return; // DO 行不处理展开详情
   const code = row["测点编码"];
   const isNowExp = rows.some(r => r["测点编码"] === code);
   expandedRowKeys.value = isNowExp ? [...expandedRowKeys.value, code] : expandedRowKeys.value.filter(c => c !== code);
+};
+
+// ===== IEC61850 树形数据 =====
+
+/** IEC61850 DO 行展开/折叠控制 */
+const iec61850ExpandedDoKeys = ref<string[]>([]);
+const iec61850ExpandedDaKeys = ref<string[]>([]);
+const toggleDoExpand = (doRef: string) => {
+  const idx = iec61850ExpandedDoKeys.value.indexOf(doRef);
+  if (idx >= 0) {
+    iec61850ExpandedDoKeys.value.splice(idx, 1);
+    // 收起 DO 时也收起其下所有 DA
+    iec61850ExpandedDaKeys.value = iec61850ExpandedDaKeys.value.filter(
+      (k: string) => !k.startsWith(doRef + '.')
+    );
+  } else {
+    iec61850ExpandedDoKeys.value.push(doRef);
+  }
+};
+const toggleDaExpand = (daKey: string) => {
+  const idx = iec61850ExpandedDaKeys.value.indexOf(daKey);
+  if (idx >= 0) {
+    iec61850ExpandedDaKeys.value.splice(idx, 1);
+  } else {
+    iec61850ExpandedDaKeys.value.push(daKey);
+  }
+};
+
+/** IEC61850 树形表格行样式 */
+const iec61850RowClassName = ({ row }: { row: any }) => {
+  if (row._isDoRow) return 'do-row';
+  if (row._isDaRow) return 'da-row';
+  if (row._isVirtualDa) return 'virtual-da-row';
+  return '';
 };
 
 const tagFilters = FRAME_TYPE_FILTERS;
@@ -397,7 +580,7 @@ const convertedTableData = computed(() => {
         if (displayVal === 'None' || displayVal === null) {
           displayVal = '';
         }
-        data[h] = (i === props.tableHeader.length - 4) ? parseFloat(val || 0).toFixed(3) : displayVal;
+        data[h] = (h === '真实值') ? parseFloat(val || 0).toFixed(3) : displayVal;
       }
     });
     return data;
@@ -415,6 +598,127 @@ const filteredData = computed(() => {
       return values.includes(row[key]);
     });
   });
+});
+
+/** IEC61850 DO 总数 (从后端树形数据的 total 获取) */
+const iec61850DoTotal = computed(() => {
+  return props.iec61850TreeData?.total || 0;
+});
+
+/** 有效分页总数（IEC61850 按后端返回 DO 总数，其他用后端 total） */
+const effectiveTotal = computed(() => {
+  if (props.isIec61850) return iec61850DoTotal.value;
+  return props.total;
+});
+
+/** 帧类型数字 → 标签映射 */
+const FRAME_TYPE_LABELS: Record<number, string> = { 0: '遥测', 1: '遥信', 2: '遥控', 3: '遥调' };
+
+/** IEC61850 树形数据: 将后端返回的树形结构扁平化为表格行 */
+const iec61850FlatRows = computed(() => {
+  if (!props.isIec61850 || !props.iec61850TreeData) return [];
+  const items = props.iec61850TreeData.items || [];
+  const result: any[] = [];
+
+  for (const doNode of items) {
+    const doRef = doNode.do_ref;
+    const doName = doNode.du_name || doNode.do_name;
+    // 从 DO 的 DA 列表中查找主值作为根节点显示值
+    // 优先级: mag/cVal/instMag/mxVal > stVal/ctlVal/setVal
+    // 结构体 DA (如 mag) 自身 value 为空, 需要从 BDA children 中取值
+    const hasValue = (v: any) => v !== '' && v !== undefined && v !== null;
+    const getDoDisplayValue = (daList: any[]): any => {
+      const groups = [
+        ['mag', 'cVal', 'instMag', 'mxVal'],
+        ['stVal', 'ctlVal', 'setVal'],
+      ];
+      for (const group of groups) {
+        for (const da of daList) {
+          if (!group.includes(da.da_path)) continue;
+          if (hasValue(da.value)) return da.value;
+          if (da.children?.length) {
+            for (const bda of da.children) {
+              if (hasValue(bda.value)) return bda.value;
+            }
+          }
+        }
+      }
+      return '';
+    };
+    const doValue = getDoDisplayValue(doNode.children || []) || doNode.value || '';
+    // DO 行
+    result.push({
+      _isDoRow: true,
+      _rowKey: `do-${doRef}`,
+      _doName: doNode.do_name,
+      _doRef: doRef,
+      _fc: doNode.fc,
+      _daCount: doNode.children?.length || 0,
+      _duName: doNode.du_name,
+      '地址': doRef,
+      '测点名称': doName,
+      '测点编码': '',
+      '帧类型': FRAME_TYPE_LABELS[doNode.frame_type] || '',
+      '真实值': doValue,
+      '16进制地址': '',
+      'FC': doNode.fc,
+      '状态': doNode.status || '',
+    });
+
+    // 仅当 DO 展开时才添加 DA/BDA 行
+    if (!iec61850ExpandedDoKeys.value.includes(doRef)) continue;
+
+    for (const daNode of (doNode.children || [])) {
+      const daRow: any = {
+        _isDaRow: true,
+        _daPath: daNode.da_path,
+        _daDisplayName: daNode.da_name,
+        _fc: daNode.fc,
+        _doRef: doRef,
+        _isStructDa: daNode.is_struct,
+        _bdaCount: daNode.children?.length || 0,
+        _isVirtualDa: !daNode.point_code,  // 无 point_code 表示后端虚拟补充的
+        '地址': `${doRef}.${daNode.da_path}`,
+        '测点名称': daNode.point_name || daNode.da_name,
+        '测点编码': daNode.point_code || '',
+        '真实值': daNode.value || '',
+        '16进制地址': '',
+        'FC': daNode.fc,
+        '帧类型': FRAME_TYPE_LABELS[doNode.frame_type] || '',
+        '状态': daNode.status || '',
+      };
+      result.push(daRow);
+
+      // 仅当结构体 DA 展开时才添加 BDA 行
+      if (daNode.is_struct && iec61850ExpandedDaKeys.value.includes(`${doRef}.${daNode.da_path}`)) {
+        for (const bdaNode of (daNode.children || [])) {
+          result.push({
+            _isBdaRow: true,
+            _isDaRow: false,
+            _parentDa: daNode.da_name,
+            _bdaName: bdaNode.bda_name,
+            _daPath: bdaNode.bda_path,
+            _fc: bdaNode.fc,
+            _doRef: doRef,
+            '地址': `${doRef}.${bdaNode.bda_path}`,
+            '测点名称': bdaNode.bda_name,
+            '测点编码': bdaNode.point_code || '',
+            '真实值': bdaNode.value || '',
+            '16进制地址': '',
+            'FC': bdaNode.fc,
+            '帧类型': '',
+            '状态': bdaNode.status || '',
+          });
+        }
+      }
+    }
+  }
+  return result;
+});
+
+/** 最终展示数据 (IEC61850 用树形扁平行, 其他用扁平) */
+const displayData = computed(() => {
+  return props.isIec61850 ? iec61850FlatRows.value : filteredData.value;
 });
 
 const handleSizeChange = (s: number) => { emit("update:pageSize", s); emit("update:pageIndex", 1); };
@@ -466,6 +770,40 @@ const handleWritePoint = (row: any) => {
 
 const handleWriteSuccess = () => {
   emit('refresh');
+};
+
+// ===== IEC61850 专用读写操作 =====
+
+const handleIec61850ReadPoint = async (pointCode: string) => {
+  if (!props.channelId) return;
+  readingPoints[pointCode] = true;
+  try {
+    const result = await iec61850ReadPoint(props.channelId, pointCode);
+    if (result && result.value !== null) {
+      ElMessage.success(`读取成功: ${result.value}`);
+      emit('refresh');
+    } else {
+      ElMessage.warning('读取失败，请检查连接状态');
+    }
+  } catch (e: any) {
+    ElMessage.error(`读取失败: ${e?.message || e}`);
+  } finally {
+    readingPoints[pointCode] = false;
+  }
+};
+
+const iec61850WriteDialogVisible = ref(false);
+const iec61850WritePointData = reactive({
+  code: '',
+  value: '' as string | number,
+  type: 0,
+});
+
+const handleIec61850WritePoint = (row: any) => {
+  iec61850WritePointData.code = row['测点编码'];
+  iec61850WritePointData.value = row['真实值'];
+  iec61850WritePointData.type = getPointType(row['帧类型']);
+  iec61850WriteDialogVisible.value = true;
 };
 
 const handleDeletePoint = async (pointCode: string) => {
@@ -623,5 +961,159 @@ body.theme-dark {
   align-items: center;
   justify-content: center;
   height: 100%;
+}
+
+/* ===== IEC61850 树形表格样式 ===== */
+
+/* DO 行 (父行) 样式 - 保持与其他行一致的背景 */
+:deep(.do-row) {
+  font-weight: 600;
+
+  /* 隐藏展开详情箭头 (DO 行不需要详情面板) */
+  .el-table__expand-icon {
+    visibility: hidden;
+  }
+}
+
+/* 虚拟 DA 行 (q/t/dU 补充行) 样式 */
+:deep(.virtual-da-row) {
+  /* 隐藏展开详情箭头 (虚拟行不需要详情面板) */
+  .el-table__expand-icon {
+    visibility: hidden;
+  }
+}
+
+/* DO 展开箭头 */
+.do-expand-icon {
+  transition: transform 0.2s;
+  margin-right: 4px;
+  cursor: pointer;
+  color: #6b7280;
+  font-size: 14px;
+
+  &.is-expanded {
+    transform: rotate(90deg);
+  }
+}
+
+/* DO 行地址区域 */
+.do-address {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+}
+
+/* DA 行地址区域 (缩进+左对齐) */
+.da-address {
+  display: block;
+  text-align: left;
+  padding-left: 24px;
+
+  &.is-struct-da {
+    cursor: pointer;
+  }
+}
+.bda-address {
+  display: block;
+  text-align: left;
+  padding-left: 44px;
+  color: #6b7280;
+  font-size: 0.9em;
+}
+.da-expand-icon {
+  transition: transform 0.2s;
+  margin-right: 4px;
+  &.is-expanded {
+    transform: rotate(90deg);
+  }
+}
+
+/* DA 行 (子行) 样式 - 保持与其他行一致 */
+:deep(.da-row) {
+}
+
+/* DO 名称加粗 (保持正常颜色) */
+.do-name {
+  font-weight: 700 !important;
+}
+
+/* DA 路径样式 */
+.da-path {
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  color: #475569;
+}
+
+/* FC 标签 */
+.fc-tag {
+  border: none !important;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  min-width: 36px;
+  text-align: center;
+}
+
+/* DO 子项数 badge */
+.do-badge {
+  display: inline-block;
+  font-size: 11px;
+  color: #6b7280;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 1px 8px;
+}
+
+/* DO 原始名称 (当 dU 描述与 DO 名称不同时显示) */
+.do-original-name {
+  display: inline-block;
+  font-size: 11px;
+  color: #94a3b8;
+  background: #f8fafc;
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-left: 4px;
+}
+
+/* DO/DA 标识标签 */
+.do-da-tag {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: 4px;
+  padding: 0 5px;
+  height: 18px;
+  line-height: 18px;
+  vertical-align: middle;
+}
+.do-tag {
+  color: #3b82f6;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.da-tag {
+  color: #10b981;
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+}
+.bda-tag {
+  color: #6366f1;
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+
+/* 深色模式 - IEC61850 树形 */
+body.theme-dark {
+  .do-name { color: inherit !important; }
+  .do-address { color: #94a3b8; }
+  .da-path { color: #94a3b8; }
+  .bda-address { color: #64748b; }
+  .do-badge { color: #94a3b8; background: #334155; }
+  .do-original-name { color: #64748b; background: #1e293b; }
+  .do-tag { color: #60a5fa; border-color: #1e3a5f; background: #1e293b; }
+  .da-tag { color: #34d399; border-color: #064e3b; background: #0d2818; }
+  .bda-tag { color: #818cf8; border-color: #312e81; background: #1e1b4b; }
 }
 </style>

@@ -42,7 +42,7 @@ SCL_NS = "http://www.iec.ch/61850/2003/SCL"
 
 # CDC 到测点类型的映射
 CDC_YC = {"MV", "CMV", "SAV", "WYE", "DEL", "SEQ", "HMV"}          # 遥测
-CDC_YX = {"SPS", "DPS", "INS", "ENS", "ACT", "ACD", "SEC", "BCR"}   # 遥信
+CDC_YX = {"SPS", "DPS", "INS", "ENS", "ENC", "ACT", "ACD", "SEC", "BCR"}   # 遥信 (ENC=枚举控制, stVal为整型)
 CDC_YK = {"SPC", "DPC"}                                              # 遥控
 CDC_YT = {"APC", "INC", "ASG", "ING", "SPG", "BAC"}                 # 遥调
 
@@ -153,47 +153,122 @@ class IcdPointImporter:
 
                             cdc = do_type_def.get("cdc", "")
                             ref_prefix = f"{ld_inst}/{ln_name}.{do_name}"
+                            
+                            # 获取 DO 的描述 (优先从 IED 部分 DOI/DAI/Val 获取 dU 实际值)
+                            do_desc = self._get_do_desc(do_elem, do_type_def, do_name, ln_elem)
 
-                            # 根据 CDC 分类
+                            # 收集该 DO 下的所有 DA (包括主值 DA 和元数据 DA)
+                            all_das = self._collect_all_das(do_type_def, cdc)
+
+                            # 根据 CDC 分类, 确定主值 DA
                             if cdc in CDC_YC:
-                                da_ref = self._get_value_ref(do_type_def, cdc, "MX")
-                                if da_ref:
+                                main_da_ref = self._get_value_ref(do_type_def, cdc, "MX")
+                                if main_da_ref:
                                     yc_points.append({
-                                        "code": f"{ld_inst}_{ln_name}_{do_name}",
-                                        "name": self._get_do_desc(do_elem, do_type_def, do_name),
-                                        "reg_addr": f"{ref_prefix}.{da_ref}",
+                                        "code": f"{ld_inst}_{ln_name}_{do_name}_{main_da_ref.replace('.', '_')}",
+                                        "name": do_desc,
+                                        "reg_addr": f"{ref_prefix}.{main_da_ref}",
                                         "cdc": cdc,
+                                        "da_name": main_da_ref,
+                                        "fc": "MX",
                                     })
+                                # 为其他非主值 DA 也创建测点 (q, t, du 等)
+                                for da_info in all_das:
+                                    da_name = da_info["name"]
+                                    da_path = da_info["path"]
+                                    da_fc = da_info["fc"]
+                                    if da_path == main_da_ref:
+                                        continue  # 主值已添加
+                                    if da_fc in ("MX", "ST", "DC"):
+                                        yc_points.append({
+                                            "code": f"{ld_inst}_{ln_name}_{do_name}_{da_path.replace('.', '_')}",
+                                            "name": do_desc,
+                                            "reg_addr": f"{ref_prefix}.{da_path}",
+                                            "cdc": cdc,
+                                            "da_name": da_path,
+                                            "fc": da_fc,
+                                        })
 
                             elif cdc in CDC_YX:
-                                da_ref = self._get_value_ref(do_type_def, cdc, "ST")
-                                if da_ref:
+                                main_da_ref = self._get_value_ref(do_type_def, cdc, "ST")
+                                if main_da_ref:
                                     yx_points.append({
-                                        "code": f"{ld_inst}_{ln_name}_{do_name}",
-                                        "name": self._get_do_desc(do_elem, do_type_def, do_name),
-                                        "reg_addr": f"{ref_prefix}.{da_ref}",
+                                        "code": f"{ld_inst}_{ln_name}_{do_name}_{main_da_ref.replace('.', '_')}",
+                                        "name": do_desc,
+                                        "reg_addr": f"{ref_prefix}.{main_da_ref}",
                                         "cdc": cdc,
+                                        "da_name": main_da_ref,
+                                        "fc": "ST",
                                     })
+                                for da_info in all_das:
+                                    da_name = da_info["name"]
+                                    da_path = da_info["path"]
+                                    da_fc = da_info["fc"]
+                                    if da_path == main_da_ref:
+                                        continue
+                                    if da_fc in ("ST", "MX", "DC"):
+                                        yx_points.append({
+                                            "code": f"{ld_inst}_{ln_name}_{do_name}_{da_path.replace('.', '_')}",
+                                            "name": do_desc,
+                                            "reg_addr": f"{ref_prefix}.{da_path}",
+                                            "cdc": cdc,
+                                            "da_name": da_path,
+                                            "fc": da_fc,
+                                        })
 
                             elif cdc in CDC_YK:
-                                da_ref = self._get_control_ref(do_type_def, cdc)
-                                if da_ref:
+                                main_da_ref = self._get_control_ref(do_type_def, cdc)
+                                if main_da_ref:
                                     yk_points.append({
-                                        "code": f"{ld_inst}_{ln_name}_{do_name}",
-                                        "name": self._get_do_desc(do_elem, do_type_def, do_name),
-                                        "reg_addr": f"{ref_prefix}.{da_ref}",
+                                        "code": f"{ld_inst}_{ln_name}_{do_name}_{main_da_ref.replace('.', '_')}",
+                                        "name": do_desc,
+                                        "reg_addr": f"{ref_prefix}.{main_da_ref}",
                                         "cdc": cdc,
+                                        "da_name": main_da_ref,
+                                        "fc": "CO",
                                     })
+                                for da_info in all_das:
+                                    da_name = da_info["name"]
+                                    da_path = da_info["path"]
+                                    da_fc = da_info["fc"]
+                                    if da_path == main_da_ref:
+                                        continue
+                                    if da_fc in ("CO", "ST", "DC"):
+                                        yk_points.append({
+                                            "code": f"{ld_inst}_{ln_name}_{do_name}_{da_path.replace('.', '_')}",
+                                            "name": do_desc,
+                                            "reg_addr": f"{ref_prefix}.{da_path}",
+                                            "cdc": cdc,
+                                            "da_name": da_path,
+                                            "fc": da_fc,
+                                        })
 
                             elif cdc in CDC_YT:
-                                da_ref = self._get_control_ref(do_type_def, cdc)
-                                if da_ref:
+                                main_da_ref = self._get_control_ref(do_type_def, cdc)
+                                if main_da_ref:
                                     yt_points.append({
-                                        "code": f"{ld_inst}_{ln_name}_{do_name}",
-                                        "name": self._get_do_desc(do_elem, do_type_def, do_name),
-                                        "reg_addr": f"{ref_prefix}.{da_ref}",
+                                        "code": f"{ld_inst}_{ln_name}_{do_name}_{main_da_ref.replace('.', '_')}",
+                                        "name": do_desc,
+                                        "reg_addr": f"{ref_prefix}.{main_da_ref}",
                                         "cdc": cdc,
+                                        "da_name": main_da_ref,
+                                        "fc": "CO",
                                     })
+                                for da_info in all_das:
+                                    da_name = da_info["name"]
+                                    da_path = da_info["path"]
+                                    da_fc = da_info["fc"]
+                                    if da_path == main_da_ref:
+                                        continue
+                                    if da_fc in ("CO", "ST", "DC"):
+                                        yt_points.append({
+                                            "code": f"{ld_inst}_{ln_name}_{do_name}_{da_path.replace('.', '_')}",
+                                            "name": do_desc,
+                                            "reg_addr": f"{ref_prefix}.{da_path}",
+                                            "cdc": cdc,
+                                            "da_name": da_path,
+                                            "fc": da_fc,
+                                        })
 
         # 批量写入数据库
         self._save_yc(yc_points)
@@ -261,16 +336,282 @@ class IcdPointImporter:
         nodes.extend(ld.findall(self._tag("LN")))
         return nodes
 
-    def _get_do_desc(self, do_elem: ET.Element, do_type_def: ET.Element, do_name: str) -> str:
-        """获取 DO 的描述信息"""
-        # 优先从 DO 元素获取 desc
+    def _get_du_value_from_doi(self, ln_elem: ET.Element, do_name: str) -> str:
+        """从 IED 部分的 DOI/DAI 获取 dU 的实际值
+
+        ICD 文件结构:
+          <LN ...>
+            <DOI name="AnIn1">
+              <DAI name="du">
+                <Val>Phase A Current</Val>
+              </DAI>
+            </DOI>
+          </LN>
+        """
+        for doi in ln_elem.findall(self._tag("DOI")):
+            if doi.get("name") == do_name:
+                for dai in doi.findall(self._tag("DAI")):
+                    if dai.get("name") in ("du", "dU"):
+                        val_elem = dai.find(self._tag("Val"))
+                        if val_elem is not None and val_elem.text:
+                            return val_elem.text.strip()
+        return ""
+
+    def _get_do_desc(self, do_elem: ET.Element, do_type_def: ET.Element, do_name: str,
+                     ln_elem: ET.Element = None) -> str:
+        """获取 DO 的描述信息
+
+        优先级: DOI/DAI 中 dU 的 Val → DO 元素 desc → DOType desc →
+                du DA 的 <Val> 元素 → du DA 的 desc → DO 名称
+        """
+        # 最高优先级: 从 IED 部分的 DOI/DAI 获取 dU 实际值
+        if ln_elem is not None:
+            du_val = self._get_du_value_from_doi(ln_elem, do_name)
+            if du_val:
+                return du_val
+
+        # 从 DO 元素获取 desc
         desc = do_elem.get("desc", "")
         if not desc:
             # 从 DOType 获取 desc
             desc = do_type_def.get("desc", "")
         if not desc:
+            # 从 du DA 获取描述 (<Val> 子元素 > desc 属性 > val 属性)
+            for da in do_type_def.findall(self._tag("DA")):
+                if da.get("name") in ("dU", "du"):
+                    val_elem = da.find(self._tag("Val"))
+                    if val_elem is not None and val_elem.text:
+                        desc = val_elem.text.strip()
+                    if not desc:
+                        desc = da.get("desc", "")
+                    if not desc:
+                        desc = da.get("val", "")
+                    break
+        if not desc:
             desc = do_name
         return desc
+
+    # DA 名称 -> (完整 DA 路径, FC) 映射 (ICD 中常见元数据 DA)
+    _EXTRA_DA_MAP = {
+        "q": ("q", "MX"),
+        "t": ("t", "MX"),
+        "du": ("dU", "DC"),
+        "dU": ("dU", "DC"),
+        "subEna": ("subEna", "SV"),
+        "blkEna": ("blkEna", "BL"),
+        "origin": ("origin", "OR"),
+        "ctlNum": ("ctlNum", "CO"),
+    }
+
+    # 结构体 DA 的子 BDA 展开规则 (DA名 -> 需要展开的 BDA 列表)
+    # None 表示展开所有 BDA; 列表表示只展开指定的 BDA
+    # 注意: mag/instMag/mxVal 等测量值 DA 不在这里展开，它们的主值路径在 _collect_all_das 中硬编码
+    _STRUCT_DA_EXPAND = {
+        "q": None,       # Quality: 展开 validity, detailQuality, source, ...
+        "t": None,       # Timestamp: 展开 seconds, fraction, ...
+        "origin": None,  # Origin: 展开 orIdent, orCat, ...
+    }
+
+    # 已知 struct DA 的硬编码 BDA 子节点 (当 ICD 文件中 DAType 缺失时使用)
+    _KNOWN_BDA_FALLBACK = {
+        "q": [  # Quality
+            {"name": "validity", "bType": "Dbpos"},
+            {"name": "detailQuality", "bType": "Struct"},  # 展开时会被跳过 (Struct)
+            {"name": "source", "bType": "Dbpos"},
+            {"name": "operatorBlocked", "bType": "Boolean"},
+            {"name": "test", "bType": "Boolean"},
+            {"name": "origin", "bType": "Struct"},  # 展开时会被跳过 (Struct)
+        ],
+        "t": [  # Timestamp
+            {"name": "seconds", "bType": "Int32"},
+            {"name": "fraction", "bType": "UInt32"},
+            {"name": "TimeQuality", "bType": "Struct"},  # 展开时会被跳过 (Struct)
+        ],
+        "origin": [  # Origin
+            {"name": "orCat", "bType": "Dbpos"},
+            {"name": "orIdent", "bType": "Octet64"},
+        ],
+    }
+
+    def _expand_struct_da(self, da_name: str, da_fc: str, da_type_id: str) -> List[Dict[str, str]]:
+        """展开结构体 DA 的子 BDA
+
+        优先从 ICD 文件的 DAType 定义中获取 BDA 列表;
+        若 DAType 不存在, 则使用硬编码的 _KNOWN_BDA_FALLBACK 作为回退。
+
+        Args:
+            da_name: DA 名称 (如 "q", "t")
+            da_fc: DA 的 FC
+            da_type_id: DA 引用的 DAType id
+
+        Returns:
+            子 BDA 信息列表, 每个 {"name": "q.validity", "path": "q.validity", "fc": "MX", "bType": "..."}
+        """
+        # 确定需要展开的 BDA 过滤规则
+        expand_filter = self._STRUCT_DA_EXPAND.get(da_name)
+        if expand_filter is None and da_name not in self._STRUCT_DA_EXPAND:
+            return []
+
+        # 尝试从 ICD 文件的 DAType 中获取 BDA
+        if da_type_id and da_type_id in self._da_types:
+            da_type = self._da_types[da_type_id]
+            result = []
+            for bda in da_type.findall(self._tag("BDA")):
+                bda_name = bda.get("name", "")
+                bda_btype = bda.get("bType", "")
+                if not bda_name:
+                    continue
+                # 如果有过滤列表, 只展开指定的 BDA
+                if expand_filter is not None and bda_name not in expand_filter:
+                    continue
+                # 跳过嵌套结构体 (如 q 中的 detailQuality 也是 Struct)
+                if bda_btype == "Struct":
+                    continue
+                full_name = f"{da_name}.{bda_name}"
+                result.append({
+                    "name": full_name,
+                    "path": full_name,
+                    "fc": da_fc,
+                    "bType": bda_btype,
+                })
+            if result:
+                return result
+            log.warning(f"_expand_struct_da: DA '{da_name}' 的 DAType '{da_type_id}' 中无有效 BDA, 使用硬编码回退")
+
+        # 回退: 使用硬编码的 BDA 列表
+        if da_name in self._KNOWN_BDA_FALLBACK:
+            if not da_type_id:
+                log.info(f"_expand_struct_da: DA '{da_name}' 无 type 属性, 使用硬编码 BDA 回退")
+            elif da_type_id not in self._da_types:
+                log.info(f"_expand_struct_da: DA '{da_name}' 的 type='{da_type_id}' 不在 _da_types 中, 使用硬编码 BDA 回退")
+            result = []
+            for bda_info in self._KNOWN_BDA_FALLBACK[da_name]:
+                bda_name = bda_info["name"]
+                bda_btype = bda_info["bType"]
+                # 如果有过滤列表, 只展开指定的 BDA
+                if expand_filter is not None and bda_name not in expand_filter:
+                    continue
+                # 跳过嵌套结构体
+                if bda_btype == "Struct":
+                    continue
+                full_name = f"{da_name}.{bda_name}"
+                result.append({
+                    "name": full_name,
+                    "path": full_name,
+                    "fc": da_fc,
+                    "bType": bda_btype,
+                })
+            return result
+
+        if not da_type_id:
+            log.warning(f"_expand_struct_da: DA '{da_name}' 无 type 属性, 且无硬编码回退")
+        elif da_type_id not in self._da_types:
+            log.warning(f"_expand_struct_da: DA '{da_name}' 的 type='{da_type_id}' 不在 _da_types 中, 且无硬编码回退")
+        return []
+
+    def _collect_all_das(self, do_type: ET.Element, cdc: str) -> List[Dict[str, str]]:
+        """收集 DOType 下所有 DA (包括主值和元数据)
+
+        Returns:
+            DA 信息列表, 如 [{"name": "mag", "path": "mag", "fc": "MX"}, ...]
+        """
+        result = []
+        for da in do_type.findall(self._tag("DA")):
+            da_name = da.get("name", "")
+            da_fc = da.get("fc", "")
+            da_btype = da.get("bType", "")
+            da_type_id = da.get("type", "")
+
+            if da_name in self._EXTRA_DA_MAP:
+                # _EXTRA_DA_MAP 中的 DA (q, t, du, dU 等)
+                da_path, default_fc = self._EXTRA_DA_MAP[da_name]
+                da_fc = da_fc or default_fc
+                # 结构体 DA: 展开子 BDA
+                if da_btype == "Struct" and da_name in self._STRUCT_DA_EXPAND:
+                    result.append({
+                        "name": da_name,
+                        "path": da_path,
+                        "fc": da_fc,
+                        "bType": da_btype,
+                    })
+                    expanded = self._expand_struct_da(da_name, da_fc, da_type_id)
+                    result.extend(expanded)
+                else:
+                    result.append({
+                        "name": da_name,
+                        "path": da_path,
+                        "fc": da_fc,
+                        "bType": da_btype,
+                    })
+            elif da_name in ("mag", "cVal", "instMag", "mxVal", "fCVal"):
+                # 测量值类 DA - 使用硬编码主值路径 (不展开为 struct DA)
+                da_fc = da_fc or "MX"
+                if da_name == "mag":
+                    da_path = "mag.f"
+                elif da_name == "cVal":
+                    da_path = "cVal.mag.f"
+                elif da_name == "instMag":
+                    da_path = "instMag.f"
+                elif da_name == "mxVal":
+                    da_path = "mxVal.f"
+                elif da_name == "fCVal":
+                    da_path = "fCVal.mag.f"
+                else:
+                    da_path = da_name
+                result.append({
+                    "name": da_name,
+                    "path": da_path,
+                    "fc": da_fc,
+                    "bType": da_btype,
+                })
+            elif da_name in ("stVal", "ctlVal", "setVal", "wVal"):
+                da_path = da_name
+                result.append({
+                    "name": da_name,
+                    "path": da_path,
+                    "fc": da_fc,
+                    "bType": da_btype,
+                })
+            elif da_name in ("Oper", "SBOw", "Cancel", "SBO"):
+                if da_name == "Oper":
+                    da_path = "Oper.ctlVal"
+                    da_fc = da_fc or "CO"
+                elif da_name == "SBOw":
+                    da_path = "SBOw.ctlVal"
+                    da_fc = da_fc or "CO"
+                elif da_name == "Cancel":
+                    da_path = "Cancel.ctlVal"
+                    da_fc = da_fc or "CO"
+                else:
+                    da_path = da_name
+                result.append({
+                    "name": da_name,
+                    "path": da_path,
+                    "fc": da_fc,
+                    "bType": da_btype,
+                })
+            else:
+                # 其他 DA (如 pixTyp, frVal 等), 使用名称作为路径
+                da_path = da_name
+                # 结构体 DA: 展开子 BDA
+                if da_btype == "Struct":
+                    result.append({
+                        "name": da_name,
+                        "path": da_path,
+                        "fc": da_fc,
+                        "bType": da_btype,
+                    })
+                    expanded = self._expand_struct_da(da_name, da_fc, da_type_id)
+                    result.extend(expanded)
+                else:
+                    result.append({
+                        "name": da_name,
+                        "path": da_path,
+                        "fc": da_fc,
+                        "bType": da_btype,
+                    })
+
+        return result
 
     def _get_value_ref(self, do_type: ET.Element, cdc: str, target_fc: str) -> Optional[str]:
         """获取测量/状态类型 DO 的值引用路径
@@ -290,7 +631,7 @@ class IcdPointImporter:
             return self._find_da_path(do_type, ["cVal", "mag", "f"], target_fc) or "cVal.mag.f"
         elif cdc == "SAV":
             return self._find_da_path(do_type, ["instMag", "f"], target_fc) or "instMag.f"
-        elif cdc in ("SPS", "DPS", "INS", "ENS", "ACT", "ACD", "SEC"):
+        elif cdc in ("SPS", "DPS", "INS", "ENS", "ENC", "ACT", "ACD", "SEC"):
             return "stVal"
         elif cdc == "BCR":
             return "actVal"
@@ -407,6 +748,7 @@ class IcdPointImporter:
                         add_coe=0.0,
                         max_limit=999999.0,
                         min_limit=-999999.0,
+                        fc=p.get("fc"),
                     )
                     session.add(point)
                     self.yc_count += 1
@@ -428,6 +770,7 @@ class IcdPointImporter:
                         decode_code="",
                         bit=None,
                         reverse=False,
+                        fc=p.get("fc"),
                     )
                     session.add(point)
                     self.yx_count += 1
@@ -449,6 +792,7 @@ class IcdPointImporter:
                         decode_code="",
                         bit=None,
                         command_type=0,
+                        fc=p.get("fc"),
                     )
                     session.add(point)
                     self.yk_count += 1
@@ -472,6 +816,7 @@ class IcdPointImporter:
                         add_coe=0.0,
                         max_limit=999999.0,
                         min_limit=-999999.0,
+                        fc=p.get("fc"),
                     )
                     session.add(point)
                     self.yt_count += 1

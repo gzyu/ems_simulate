@@ -32,6 +32,7 @@ class DataExporter:
             "帧类型",
             "IEC104类型",
             "状态",
+            "FC",
         ]
 
     def get_table_data(
@@ -141,7 +142,12 @@ class DataExporter:
             real_val = ""
         else:
             reg_val = str(point.hex_value)
-            real_val = str(point.real_value)
+            # IEC61850: FC=DC 的 DA 为描述/元数据 (如 dU, d, cDCnam), 真实值返回描述文本
+            point_fc = getattr(point, 'fc', '') or ''
+            if point_fc == 'DC':
+                real_val = str(point.name)
+            else:
+                real_val = str(point.real_value)
         
         # 获取 IEC104 类型标签
         iec_type_label = ""
@@ -165,6 +171,7 @@ class DataExporter:
             str(frame_type_dict.get(point.frame_type, "")),
             iec_type_label,
             status,
+            str(getattr(point, 'fc', '') or ''),
         ]
 
     def _format_yx_row(
@@ -185,7 +192,12 @@ class DataExporter:
             real_val = ""
         else:
             reg_val = str(point.hex_value)
-            real_val = str(int(point.value))
+            # IEC61850: FC=DC 的 DA 为描述/元数据 (如 dU, d, cDCnam), 真实值返回描述文本
+            point_fc = getattr(point, 'fc', '') or ''
+            if point_fc == 'DC':
+                real_val = str(point.name)
+            else:
+                real_val = str(int(point.value))
 
         # 获取 IEC104 类型标签
         iec_type_label = ""
@@ -209,6 +221,7 @@ class DataExporter:
             str(frame_type_dict.get(point.frame_type, "")),
             iec_type_label,
             status,
+            str(getattr(point, 'fc', '') or ''),
         ]
 
     def export_csv(self, file_path: str) -> None:

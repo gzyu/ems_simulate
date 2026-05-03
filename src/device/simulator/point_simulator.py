@@ -138,5 +138,5 @@ class PointSimulator:
                 else:
                     self.point.set_real_value(self.point.min_value_limit)
 
-            # 保存当前值用于下一次模拟
+            # 保存真实值用于下一次模拟
             self.last_value = self.point.real_value

@@ -178,6 +178,20 @@ async def stop_device(req: DeviceStopRequest, request: Request):
         return BaseResponse(code=500, message=f"设备停止失败: {e}!", data=False)
 
 
+@device_router.post("/iec61850-connect-progress", response_model=BaseResponse)
+async def get_iec61850_connect_progress(req: DeviceInfoRequest, request: Request):
+    """获取 IEC61850 客户端连接进度"""
+    try:
+        device = _get_device(req.device_name, request)
+        progress = device.get_iec61850_connect_progress()
+        return BaseResponse(data=progress)
+    except KeyError:
+        return BaseResponse(code=404, message=f"设备 {req.device_name} 不存在!", data={})
+    except Exception as e:
+        log.error(f"获取连接进度失败: {e}")
+        return BaseResponse(code=500, message=f"获取连接进度失败: {e}", data={})
+
+
 # ===== 自动读取控制 =====
 
 @device_router.post("/auto-read-status", response_model=BaseResponse)

@@ -75,18 +75,20 @@ class IEC61850ServerHandler(ServerHandler):
     def read_value(self, point: BasePoint) -> Any:
         """读取测点值"""
         if self._server:
+            fc = getattr(point, 'fc', '') or ''
             return self._server.get_point_value(
-                address=point.address, frame_type=point.frame_type
+                address=point.address, fc=fc
             )
         return 0
 
     def write_value(self, point: BasePoint, value: Any) -> bool:
         """写入测点值"""
         if self._server:
+            fc = getattr(point, 'fc', '') or ''
             self._server.set_point_value(
                 address=point.address,
                 value=value,
-                frame_type=point.frame_type,
+                fc=fc,
             )
             return True
         return False
@@ -105,9 +107,11 @@ class IEC61850ServerHandler(ServerHandler):
             return
 
         for point in points:
+            fc = getattr(point, 'fc', '') or ''
             self._server.add_point(
                 address=point.address,
                 frame_type=point.frame_type,
+                fc=fc,
             )
 
     def get_value_by_address(
@@ -115,7 +119,7 @@ class IEC61850ServerHandler(ServerHandler):
     ) -> Any:
         """根据地址获取值"""
         if self._server:
-            return self._server.get_point_value(address=address, frame_type=0)
+            return self._server.get_point_value(address=address, fc="MX")
         return 0
 
     def set_value_by_address(
@@ -123,7 +127,7 @@ class IEC61850ServerHandler(ServerHandler):
     ) -> None:
         """根据地址设置值"""
         if self._server:
-            self._server.set_point_value(address=address, value=value, frame_type=0)
+            self._server.set_point_value(address=address, value=value, fc="MX")
 
     @property
     def server(self):
@@ -147,12 +151,21 @@ class IEC61850ServerHandler(ServerHandler):
 class IEC61850ClientHandler(ClientHandler):
     """IEC 61850 客户端处理器"""
 
+    # 连接阶段定义
+    PHASE_IDLE = "idle"                    # 未开始
+    PHASE_CONNECTING = "connecting"        # 正在连接服务器
+    PHASE_DISCOVERING = "discovering"      # 正在发现模型
+    PHASE_DONE = "done"                    # 连接完成
+    PHASE_FAILED = "failed"                # 连接失败
+
     def __init__(self, log=None):
         super().__init__()
         self._client = None
         self._log = log
         self._on_points_discovered = None  # 测点发现回调
         self._connecting = False  # 是否正在连接中（防止重复启动）
+        self._connect_phase = self.PHASE_IDLE  # 当前连接阶段
+        self._connect_progress = 0  # 连接进度 0-100
 
     def set_on_points_discovered(self, callback):
         """设置测点发现回调
@@ -205,6 +218,10 @@ class IEC61850ClientHandler(ClientHandler):
         if self._connecting:
             return True  # 已在连接中，视为成功受理
 
+        # 重置连接进度（重新连接时清除上一次的状态）
+        self._connect_phase = self.PHASE_IDLE
+        self._connect_progress = 0
+
         self._connecting = True
         import threading
         thread = threading.Thread(target=self._connect_background, daemon=True)
@@ -223,12 +240,28 @@ class IEC61850ClientHandler(ClientHandler):
         通常应使用 async start() 方法（后台线程执行连接）。
         """
         if not self._client:
+            self._connect_phase = self.PHASE_FAILED
             return False
-        is_connected = self._client.connect()
+
+        # 阶段1: 连接服务器
+        self._connect_phase = self.PHASE_CONNECTING
+        self._connect_progress = 10
+        is_connected = self._client.connect(auto_discover=False)  # 仅连接，不自动发现
         self._is_running = is_connected
 
-        # 连接成功后，通知上层发现的测点
-        if is_connected and self._on_points_discovered:
+        if not is_connected:
+            self._connect_phase = self.PHASE_FAILED
+            self._connect_progress = 0
+            return False
+
+        # 阶段2: 发现数据模型
+        self._connect_phase = self.PHASE_DISCOVERING
+        self._connect_progress = 40
+        self._client.discover_model()
+        self._connect_progress = 80
+
+        # 阶段3: 通知上层发现的测点
+        if self._on_points_discovered:
             discovered = self._client.get_discovered_points()
             if discovered:
                 try:
@@ -236,6 +269,9 @@ class IEC61850ClientHandler(ClientHandler):
                 except Exception as e:
                     if self._log:
                         self._log.error(f"处理发现的测点时出错: {e}")
+
+        self._connect_phase = self.PHASE_DONE
+        self._connect_progress = 100
         return is_connected
 
     def _connect_background(self):
@@ -246,15 +282,34 @@ class IEC61850ClientHandler(ClientHandler):
             if self._log:
                 self._log.error(f"连接 IEC 61850 服务器失败: {e}")
             self._is_running = False
+            self._connect_phase = self.PHASE_FAILED
+            self._connect_progress = 0
         finally:
             self._connecting = False
+
+    def get_connect_progress(self) -> dict:
+        """获取连接进度信息
+
+        Returns:
+            {"phase": str, "progress": int, "connecting": bool}
+            phase: idle/connecting/discovering/done/failed
+            progress: 0-100
+            connecting: 是否正在连接中
+        """
+        return {
+            "phase": self._connect_phase,
+            "progress": self._connect_progress,
+            "connecting": self._connecting,
+        }
 
     def disconnect(self) -> None:
         """断开连接"""
         self._connecting = False
+        self._connect_phase = self.PHASE_IDLE
+        self._connect_progress = 0
         if self._client:
             self._client.disconnect()
-            self._is_running = False
+        self._is_running = False
 
     @property
     def is_running(self) -> bool:
@@ -274,8 +329,9 @@ class IEC61850ClientHandler(ClientHandler):
                 self._log.error("IEC 61850 客户端未连接")
             return None
 
+        fc = getattr(point, 'fc', '') or ''
         real_val = self._client.read_point(
-            address=point.address, frame_type=point.frame_type
+            address=point.address, fc=fc
         )
         if real_val is None:
             if self._log:
@@ -300,18 +356,19 @@ class IEC61850ClientHandler(ClientHandler):
         real_to_send = value
 
         try:
+            fc = getattr(point, 'fc', '') or ''
             if isinstance(point, (Yc, Yt)):
                 real_to_send = value * point.mul_coe + point.add_coe
                 return self._client.write_point(
                     address=point.address,
                     value=float(real_to_send),
-                    frame_type=point.frame_type,
+                    fc=fc,
                 )
             elif isinstance(point, (Yx, Yk)):
                 return self._client.write_point(
                     address=point.address,
                     value=bool(real_to_send),
-                    frame_type=point.frame_type,
+                    fc=fc,
                 )
         except Exception as e:
             if self._log:
@@ -319,6 +376,54 @@ class IEC61850ClientHandler(ClientHandler):
             return False
 
         return False
+
+    def read_points_batch(self, points: List[BasePoint]) -> Dict[str, Any]:
+        """批量读取测点值
+
+        利用 IEC61850Client 的 read_points_batch 按 iec_type 分组读取，
+        减少类型判断开销，连接断开时快速失败。
+
+        Args:
+            points: 测点列表
+
+        Returns:
+            {point.code: value} 字典，读取失败的测点不包含在结果中
+        """
+        if not self._client or not self.is_running:
+            return {}
+
+        # 构建地址列表和 FC 映射
+        addresses = []
+        fc_map = {}
+        addr_to_code = {}  # address -> point.code (用于结果映射)
+        point_map = {}     # address -> point (用于系数换算)
+
+        for point in points:
+            addr = str(point.address)
+            addresses.append(addr)
+            fc = getattr(point, 'fc', '') or ''
+            if fc:
+                fc_map[addr] = fc
+            addr_to_code[addr] = point.code
+            point_map[addr] = point
+
+        # 批量读取
+        raw_results = self._client.read_points_batch(addresses, fc_map)
+
+        # 系数换算 (遥测点需反向换算)
+        results: Dict[str, Any] = {}
+        for addr, value in raw_results.items():
+            point = point_map.get(addr)
+            code = addr_to_code.get(addr, addr)
+            if point and isinstance(point, Yc):
+                try:
+                    results[code] = int((value - point.add_coe) / point.mul_coe)
+                except (ZeroDivisionError, TypeError):
+                    results[code] = value
+            else:
+                results[code] = value
+
+        return results
 
     async def read_value_async(self, point: BasePoint) -> Any:
         """异步读取测点值"""
@@ -334,9 +439,11 @@ class IEC61850ClientHandler(ClientHandler):
             return
 
         for point in points:
+            fc = getattr(point, 'fc', '') or ''
             self._client.add_point(
                 address=point.address,
                 frame_type=point.frame_type,
+                fc=fc,
             )
 
     @property

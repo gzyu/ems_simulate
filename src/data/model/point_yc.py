@@ -29,6 +29,7 @@ class PointYcDict(TypedDict):
     iec_cot: Optional[int]
     iec_quality: Optional[int]
     iec_type_id: Optional[str]
+    fc: Optional[str]
     enable: bool
 
 
@@ -52,7 +53,7 @@ class PointYc(Base):
         Integer, server_default="1", comment="从机地址/IEC104信息对象地址"
     )
     reg_addr: Mapped[str] = mapped_column(
-        String(32), nullable=False, comment="寄存器地址"
+        String(128), nullable=False, comment="寄存器地址"
     )
     func_code: Mapped[int] = mapped_column(
         Integer, server_default="3", comment="功能码"
@@ -87,6 +88,11 @@ class PointYc(Base):
     )
     iec_type_id: Mapped[Optional[str]] = mapped_column(
         String(16), nullable=True, comment="IEC104类型标识(如M_ME_NC_1)"
+    )
+
+    # IEC61850 特定字段
+    fc: Mapped[Optional[str]] = mapped_column(
+        String(8), nullable=True, comment="IEC61850功能约束(FC), 如MX/ST/CO/DC/CF/SF等"
     )
 
     enable: Mapped[bool] = mapped_column(

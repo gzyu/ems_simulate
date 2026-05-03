@@ -206,6 +206,24 @@ export async function getAvgTime(deviceName: string): Promise<AvgTimeStats | nul
   }
 }
 
+// ===== IEC61850 连接进度 =====
+
+export interface IEC61850ConnectProgress {
+  phase: 'idle' | 'connecting' | 'discovering' | 'done' | 'failed';
+  progress: number;
+  connecting: boolean;
+}
+
+export async function getIEC61850ConnectProgress(deviceName: string): Promise<IEC61850ConnectProgress | null> {
+  try {
+    const data = await requestApi(DEVICE_API.IEC61850_CONNECT_PROGRESS, 'post', { device_name: deviceName });
+    return data;
+  } catch (error) {
+    console.error('Error getting IEC61850 connect progress:', error);
+    return null;
+  }
+}
+
 // ===== 动态测点/从机管理 =====
 
 export async function addSlave(deviceName: string, slaveId: number): Promise<boolean> {

@@ -10,6 +10,18 @@ from src.enums.point_data import Yt
 from src.tools.transform import decimal_to_hex, process_hex_address, transform
 
 
+def _infer_iec61850_fc(address: str, frame_type: int) -> str:
+    """从 IEC61850 地址推断 FC, 推断失败则根据帧类型回退"""
+    try:
+        from src.proto.iec61850.iec61850_client import infer_fc_from_address
+        fc = infer_fc_from_address(address)
+        if fc:
+            return fc
+    except Exception:
+        pass
+    return {0: 'MX', 1: 'ST', 2: 'CO', 3: 'CO'}.get(frame_type, '')
+
+
 class YtService:
     """遥调服务类"""
 
@@ -104,6 +116,8 @@ class YtService:
 
         elif protocol_type in [ProtocolType.Iec61850Server, ProtocolType.Iec61850Client]:
             address = item["reg_addr"]
+            # 优先使用数据库中的 FC, 仅在未存储时推断
+            fc = item.get("fc") or _infer_iec61850_fc(address, 3)
             return Yt(
                 rtu_addr=1,
                 address=address,
@@ -115,6 +129,7 @@ class YtService:
                 add_coe=item["add_coe"],
                 mul_coe=item["mul_coe"],
                 frame_type=3,
+                fc=fc,
             )
 
         elif protocol_type in [ProtocolType.Dlt645Server, ProtocolType.Dlt645Client]:

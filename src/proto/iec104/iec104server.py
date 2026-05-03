@@ -262,7 +262,7 @@ class IEC104Server:
         :return: 响应状态(SUCCESS/FAILURE)
         """
         log.info(
-            "{0} 收到步进命令, IOA: {1}, 消息: {2}, 前值: {3}, 当前值: {4}".format(
+            "{0} 收到步进命令, IOA: {1}, 消息: {2}, 前值: {3}, 真实值: {4}".format(
                 point.type, point.io_address, message, previous_info, point.info
             )
         )

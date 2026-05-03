@@ -18,6 +18,9 @@
           'is-group': data.isGroup,
           'is-iec61850-child': data.isIec61850Child,
           'is-iec61850-device': data.isIec61850 && !data.isGroup,
+          'is-iec61850-category': data.iec61850Level === 'category',
+          'is-iec61850-ld': data.iec61850Level === 'ld',
+          'is-iec61850-ln': data.iec61850Level === 'ln',
         }"
       >
         <el-tooltip :content="node.label" placement="right" :disabled="!isCollapse">
@@ -208,6 +211,25 @@ watch(() => props.currentNodeKey, setCurrentKey);
   color: var(--text-secondary);
 }
 
+/* IEC61850 子节点行高：匹配未分组区域的紧凑样式 */
+.device-tree :deep(.el-tree-node:has(.is-iec61850-category) > .el-tree-node__content) {
+  height: 32px;
+  border-radius: 8px;
+  margin-bottom: 2px;
+}
+
+.device-tree :deep(.el-tree-node:has(.is-iec61850-ld) > .el-tree-node__content) {
+  height: 28px;
+  border-radius: 6px;
+  margin-bottom: 1px;
+}
+
+.device-tree :deep(.el-tree-node:has(.is-iec61850-ln) > .el-tree-node__content) {
+  height: 26px;
+  border-radius: 5px;
+  margin-bottom: 1px;
+}
+
 .device-tree :deep(.el-tree-node.is-current > .el-tree-node__content) {
   background: var(--item-active-bg) !important;
   color: var(--color-primary) !important;
@@ -228,12 +250,43 @@ watch(() => props.currentNodeKey, setCurrentKey);
 }
 
 .tree-node-content.is-iec61850-child {
-  padding-left: 20px;
+  padding-left: 4px;
 }
 
-.tree-node-content.is-iec61850-child .node-label {
+/* category 层 (Data Model, GOOSE...) - 对应未分组 .child-row */
+.tree-node-content.is-iec61850-category .node-label {
   font-size: 12.5px;
   color: var(--text-secondary);
+}
+
+.tree-node-content.is-iec61850-category .node-icon {
+  color: var(--color-primary);
+  font-size: 16px;
+  margin-right: 10px;
+}
+
+/* LD 层 - 对应未分组 .iec61850-sub-item */
+.tree-node-content.is-iec61850-ld .node-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tree-node-content.is-iec61850-ld .node-icon {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-right: 8px;
+}
+
+/* LN 层 - 对应未分组 .iec61850-ln-item */
+.tree-node-content.is-iec61850-ln .node-label {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.tree-node-content.is-iec61850-ln .node-icon {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-right: 6px;
 }
 
 .tree-node-content.is-iec61850-device {
@@ -254,9 +307,10 @@ watch(() => props.currentNodeKey, setCurrentKey);
   color: var(--color-primary);
 }
 
-.is-iec61850-child .node-icon {
-  color: var(--text-secondary);
-  font-size: 16px;
+/* IEC61850 子节点的 group 图标 (如 LD 有子节点时) */
+.is-iec61850-ld.is-group .node-icon {
+  color: var(--color-primary);
+  font-size: 14px;
 }
 
 .node-label {

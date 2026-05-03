@@ -36,6 +36,7 @@ class BasePoint:
         decode: str = "0x41",
         iec_type_id: Optional[str] = None,
         iec_quality: Optional[int] = None,
+        fc: str = "",
     ) -> None:
         self._is_updating = False
         self._rtu_addr: int = int(rtu_addr)
@@ -59,6 +60,7 @@ class BasePoint:
         self._decode = decode
         self._iec_type_id: Optional[str] = iec_type_id
         self._iec_quality: IEC104QualityDescriptor = IEC104QualityDescriptor.from_int(iec_quality or 0)
+        self._fc: str = fc
 
         self.is_send_signal = False
         self.related_point: Optional["BasePoint"] = None
@@ -194,6 +196,15 @@ class BasePoint:
     @frame_type.setter
     def frame_type(self, frame_type):
         self._frame_type = frame_type
+
+    @property
+    def fc(self) -> str:
+        """IEC61850 功能约束 (FC), 如 MX/ST/CO/DC 等"""
+        return self._fc
+
+    @fc.setter
+    def fc(self, fc: str):
+        self._fc = fc
 
     @property
     def iec_type_id(self) -> Optional[str]:

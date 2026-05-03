@@ -27,23 +27,23 @@ async def test_discovery():
             return
 
         print(f"Connected. Discovered points: {len(client._point_refs)}")
-        for key, ref in client._point_refs.items():
-            print(f"Point {key}: {ref}")
+        for addr, ref in client._point_refs.items():
+            fc = client._point_fc.get(addr, "")
+            iec_type = client._point_iec_type.get(addr, "")
+            print(f"Point {addr}: ref={ref}, fc={fc}, iec_type={iec_type}")
             
         # 3. 验证映射是否正确
-        expected_points = [
-            (1, 0), (2, 1), (3, 2), (4, 3)
-        ]
+        expected_points = [1, 2, 3, 4]
         
         for p in expected_points:
-            if p in client._point_refs:
-                print(f"✓ Point {p} correctly discovered: {client._point_refs[p]}")
+            if str(p) in client._point_refs:
+                print(f"✓ Point {p} correctly discovered: {client._point_refs[str(p)]}")
             else:
                 print(f"✗ Point {p} NOT discovered")
                 
-        # 4. 测试读取
-        server.set_point_value(address=1, value=123.45, frame_type=0)
-        val = client.read_point(address=1, frame_type=0)
+        # 4. 测试读取（使用新的 fc 参数）
+        server.set_point_value(address=1, value=123.45, fc="MX")
+        val = client.read_point(address=1, fc="MX")
         print(f"Read point 1 value: {val} (expected 123.45)")
         
     finally:

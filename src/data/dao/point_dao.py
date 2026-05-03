@@ -296,6 +296,10 @@ class PointDao:
                             if "iec_quality" in metadata:
                                 result.iec_quality = int(metadata["iec_quality"]) if metadata["iec_quality"] is not None else 0
                             
+                            # IEC61850 FC
+                            if "fc" in metadata:
+                                result.fc = metadata["fc"] if metadata["fc"] else None
+                            
                             return True
                     return False
         except Exception as e:
@@ -327,6 +331,33 @@ class PointDao:
             log.error(f"删除通道测点失败: {str(e)}")
             raise e
 
+    @classmethod
+    def delete_points_by_slave(cls, channel_id: int, rtu_addr: int) -> int:
+        """删除指定通道和从机地址下的所有测点（批量删除）
+        
+        Args:
+            channel_id: 通道ID
+            rtu_addr: 从机地址
+            
+        Returns:
+            删除的总测点数
+        """
+        try:
+            total_deleted = 0
+            with local_session() as session:
+                with session.begin():
+                    for model in [PointYc, PointYx, PointYk, PointYt]:
+                        deleted = session.query(model).where(
+                            model.channel_id == channel_id,
+                            model.rtu_addr == rtu_addr
+                        ).delete()
+                        total_deleted += deleted
+            log.info(f"已删除通道 {channel_id} 从机 {rtu_addr} 的 {total_deleted} 个测点")
+            return total_deleted
+        except Exception as e:
+            log.error(f"批量删除从机测点失败: {str(e)}")
+            raise e
+
     # ===== 动态创建测点 =====
     @classmethod
     def create_yc(cls, channel_id: int, point_data: dict) -> PointYcDict:
@@ -353,6 +384,7 @@ class PointDao:
                         min_limit=point_data.get("min_limit", calc_min),
                         iec_type_id=point_data.get("iec_type_id"),
                         iec_quality=point_data.get("iec_quality", 0),
+                        fc=point_data.get("fc"),
                         enable=True
                     )
                     session.add(point)
@@ -379,6 +411,7 @@ class PointDao:
                         bit=point_data.get("bit"),
                         iec_type_id=point_data.get("iec_type_id"),
                         iec_quality=point_data.get("iec_quality", 0),
+                        fc=point_data.get("fc"),
                         enable=True
                     )
                     session.add(point)
@@ -405,6 +438,7 @@ class PointDao:
                         bit=point_data.get("bit"),
                         iec_type_id=point_data.get("iec_type_id"),
                         iec_quality=point_data.get("iec_quality", 0),
+                        fc=point_data.get("fc"),
                         enable=True
                     )
                     session.add(point)
@@ -439,6 +473,7 @@ class PointDao:
                         min_limit=point_data.get("min_limit", calc_min),
                         iec_type_id=point_data.get("iec_type_id"),
                         iec_quality=point_data.get("iec_quality", 0),
+                        fc=point_data.get("fc"),
                         enable=True
                     )
                     session.add(point)
@@ -501,6 +536,7 @@ class PointDao:
                                 min_limit=point_data.get("min_limit", calc_min),
                                 iec_type_id=point_data.get("iec_type_id"),
                                 iec_quality=point_data.get("iec_quality", 0),
+                                fc=point_data.get("fc"),
                                 enable=True
                             )
                         elif frame_type == 1:  # 遥信
@@ -515,6 +551,7 @@ class PointDao:
                                 bit=point_data.get("bit"),
                                 iec_type_id=point_data.get("iec_type_id"),
                                 iec_quality=point_data.get("iec_quality", 0),
+                                fc=point_data.get("fc"),
                                 enable=True
                             )
                         elif frame_type == 2:  # 遥控
@@ -529,6 +566,7 @@ class PointDao:
                                 bit=point_data.get("bit"),
                                 iec_type_id=point_data.get("iec_type_id"),
                                 iec_quality=point_data.get("iec_quality", 0),
+                                fc=point_data.get("fc"),
                                 enable=True
                             )
                         elif frame_type == 3:  # 遥调
@@ -551,6 +589,7 @@ class PointDao:
                                 min_limit=point_data.get("min_limit", calc_min),
                                 iec_type_id=point_data.get("iec_type_id"),
                                 iec_quality=point_data.get("iec_quality", 0),
+                                fc=point_data.get("fc"),
                                 enable=True
                             )
                         else:

@@ -1,128 +1,113 @@
-import sys
-import os
+"""
+数据库迁移脚本: 
+1. 扩大 reg_addr 列从 VARCHAR(32) 到 VARCHAR(128) (支持 IEC61850 BDA 路径)
+2. 添加 fc 列到 point_yc/yx/yk/yt 表 (支持 IEC61850 FC 持久化)
+
+用法: python scripts/migrate_db.py
+"""
 import sqlite3
-import shutil
+import os
+import sys
 
-# Add project root to python path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-sys.path.append(project_root)
+# 添加项目根目录到 Python 路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.config.global_config import ROOT_DIR
-from src.config.config import Config
-from src.data.model.base import Base
-# Import all models to ensure they are registered with Base.metadata
-from src.data.model.channel import Channel
-from src.data.model.point_yc import PointYc
-from src.data.model.point_yx import PointYx
-from src.data.model.point_yk import PointYk
-from src.data.model.point_yt import PointYt
-from sqlalchemy import create_engine, text
-import logging
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ems.db")
 
-# Configure logging
-logging.basicConfig(filename='migration_debug.log', level=logging.INFO, 
-                    format='%(asctime)s - %(message)s', encoding='utf-8')
+TABLES = ["point_yc", "point_yx", "point_yk", "point_yt"]
+
 
 def migrate():
-    print("Starting database migration...")
-    logging.info("Starting database migration...")
-    
-    # Load config to get DB path
-    config_path = os.path.join(ROOT_DIR, "etc", "config.ini")
-    if not os.path.exists(config_path):
-        config_path = os.path.join(ROOT_DIR, "config.ini")
-    Config.load_config(config_path)
-    
-    if not Config.is_sqlite():
-        print("Migration script currently only supports SQLite.")
+    if not os.path.exists(DB_PATH):
+        print(f"数据库文件不存在: {DB_PATH}")
         return
 
-    db_path = os.path.join(ROOT_DIR, Config.sqlite_path)
-    print(f"Database path: {db_path}")
-    
-    if not os.path.exists(db_path):
-        print("Database file not found. Nothing to migrate.")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    for table in TABLES:
+        print(f"\n--- 迁移表: {table} ---")
+
+        # 检查 reg_addr 列当前类型
+        cursor.execute(f"PRAGMA table_info({table})")
+        columns = cursor.fetchall()
+        col_info = {c[1]: c for c in columns}
+
+        # 1. 扩大 reg_addr 列
+        if "reg_addr" in col_info:
+            current_type = col_info["reg_addr"][2]
+            print(f"  reg_addr 当前类型: {current_type}")
+            if "32" in current_type:
+                # SQLite 不支持 ALTER COLUMN, 需要重建表
+                print(f"  需要扩大 reg_addr: VARCHAR(32) → VARCHAR(128)")
+                _rebuild_table_with_wider_reg_addr(cursor, table)
+            else:
+                print(f"  reg_addr 类型已兼容, 无需修改")
+
+        # 2. 添加 fc 列
+        if "fc" not in col_info:
+            print(f"  添加 fc 列...")
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN fc VARCHAR(8)")
+            print(f"  fc 列已添加")
+        else:
+            print(f"  fc 列已存在, 无需添加")
+
+    conn.commit()
+    conn.close()
+    print("\n迁移完成!")
+
+
+def _rebuild_table_with_wider_reg_addr(cursor, table):
+    """SQLite 不支持 ALTER COLUMN, 需要通过重建表来修改列宽度"""
+    # 获取建表 SQL
+    cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table}'")
+    row = cursor.fetchone()
+    if not row:
+        print(f"  警告: 找不到表 {table} 的建表语句")
         return
 
-    # Backup DB
-    backup_path = db_path + ".bak"
-    shutil.copy2(db_path, backup_path)
-    print(f"Backup created at: {backup_path}")
+    original_sql = row[0]
+    # 替换 VARCHAR(32) 为 VARCHAR(128) (仅对 reg_addr 列)
+    # 使用更精确的替换, 确保只替换 reg_addr 行的
+    new_sql = original_sql.replace('"reg_addr" VARCHAR(32)', '"reg_addr" VARCHAR(128)')
 
-    engine = create_engine(f"sqlite:///{db_path}")
-    
-    tables_to_migrate = ["point_yc", "point_yx", "point_yk", "point_yt"]
-    
-    with engine.connect() as conn:
-        for table_name in tables_to_migrate:
-            print(f"Migrating table: {table_name}")
-            
-            # Check if table exists
-            exists = conn.execute(text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")).fetchone()
-            if not exists:
-                print(f"Table {table_name} does not exist, skipping.")
-                continue
+    if new_sql == original_sql:
+        # 可能没有引号
+        new_sql = original_sql.replace('reg_addr VARCHAR(32)', 'reg_addr VARCHAR(128)')
 
-            # Rename old table
-            old_table_name = f"{table_name}_old"
-            conn.execute(text(f"DROP TABLE IF EXISTS {old_table_name}"))
-            conn.execute(text(f"ALTER TABLE {table_name} RENAME TO {old_table_name}"))
-            
-    # Create new tables
-    print("Creating new tables...")
-    Base.metadata.create_all(engine)
-    
-    with engine.connect() as conn:
-        for table_name in tables_to_migrate:
-            old_table_name = f"{table_name}_old"
-            
-            # Check if old table exists (it might have been skipped if it didn't exist originally)
-            exists = conn.execute(text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{old_table_name}'")).fetchone()
-            if not exists:
-                continue
+    if new_sql == original_sql:
+        print(f"  警告: 未找到 reg_addr VARCHAR(32) 模式, 跳过")
+        return
 
-            print(f"Copying data for {table_name}...")
-            
-            # Get columns for new table
-            new_columns = conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
-            new_col_names = set(c[1] for c in new_columns)
-            logging.info(f"New table {table_name} columns: {new_col_names}")
-            
-            # Get columns for old table
-            old_columns = conn.execute(text(f"PRAGMA table_info({old_table_name})")).fetchall()
-            old_col_names = set(c[1] for c in old_columns)
-            logging.info(f"Old table {old_table_name} columns: {old_col_names}")
-            
-            # Intersect columns
-            common_cols = list(new_col_names.intersection(old_col_names))
-            logging.info(f"Common columns: {common_cols}")
-            
-            if not common_cols:
-                print(f"No common columns for {table_name}, skipping data copy.")
-                logging.warning(f"No common columns for {table_name}")
-                continue
-                
-            cols_str = ", ".join([f'"{c}"' for c in common_cols])
-            sql_query = f"INSERT INTO {table_name} ({cols_str}) SELECT {cols_str} FROM {old_table_name}"
-            logging.info(f"Executing SQL: {sql_query}")
-            
-            try:
-                conn.execute(text(sql_query))
-                conn.commit()
-                print(f"Data copied for {table_name}.")
-                logging.info(f"Data copied for {table_name}.")
-                
-                # Drop old table
-                conn.execute(text(f"DROP TABLE {old_table_name}"))
-            except Exception as e:
-                logging.error(f"Error copying data for {table_name}: {e}")
-                print(f"Error copying data for {table_name}: {e}")
-                print(f"Error copying data for {table_name}: {e}")
-                print("Restoring from backup is recommended if this fails.")
-                raise e
+    temp_table = f"_temp_{table}"
 
-    print("Migration completed successfully.")
+    try:
+        # 获取所有列名
+        cursor.execute(f"PRAGMA table_info({table})")
+        columns = cursor.fetchall()
+        col_names = [c[1] for c in columns]
+
+        # 1. 用新 schema 创建临时表
+        cursor.execute(f"DROP TABLE IF EXISTS {temp_table}")
+        cursor.execute(new_sql.replace(table, temp_table, 1))
+
+        # 2. 复制数据
+        cols_str = ", ".join(f'"{c}"' for c in col_names)
+        cursor.execute(f"INSERT INTO {temp_table} ({cols_str}) SELECT {cols_str} FROM {table}")
+
+        # 3. 删除旧表
+        cursor.execute(f"DROP TABLE {table}")
+
+        # 4. 重命名临时表
+        cursor.execute(f"ALTER TABLE {temp_table} RENAME TO {table}")
+
+        print(f"  reg_addr 列已扩大为 VARCHAR(128)")
+    except Exception as e:
+        print(f"  重建表失败: {e}")
+        # 清理临时表
+        cursor.execute(f"DROP TABLE IF EXISTS {temp_table}")
+        raise
+
 
 if __name__ == "__main__":
     migrate()

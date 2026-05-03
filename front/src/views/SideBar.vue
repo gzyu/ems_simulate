@@ -201,7 +201,7 @@ const fetchDeviceGroupTree = async () => {
         for (const node of nodes) {
           if (node.isGroup && node.children) {
             // 检查直接子节点是否有该设备
-            const hasDevice = node.children.some(child => !child.isGroup && child.name === currentDeviceName.value);
+            const hasDevice = node.children.some((child: TreeNode) => !child.isGroup && child.name === currentDeviceName.value);
             if (hasDevice) {
               if (!newExpandedKeys.includes(node.nodeKey)) {
                 newExpandedKeys.push(node.nodeKey);
@@ -256,10 +256,11 @@ const fetchDeviceGroupTree = async () => {
 const handleNodeClick = (data: TreeNode) => {
   if (data.isIec61850Child) {
     // IEC61850 子节点点击: 携带 category/item 导航到设备页面
-    // data.deviceName 是所属设备名，data.type 是分类 (如 "Data Model")，data.name 是项名 (如 "GenericLD")
+    // data.type 是分类 (如 "Data Model")，data.value 是完整过滤路径 (如 "GenericLD/MMXU1")
     const deviceName = data.deviceName || data.name;
     const category = data.type || (data.isGroup ? data.name : '');
-    const item = data.isGroup ? '' : (data.name || data.label);
+    // 优先使用 value (Data Model 下 LN 节点的完整路径)，其次使用 name
+    const item = data.isGroup ? '' : (data.value || data.name || data.label);
     navigateToDevice(deviceName, false, data.isIec61850Child, { ...data, _category: category, _item: item });
     return;
   }
@@ -274,9 +275,9 @@ const handleUngroupedNodeClick = (data: any) => {
     // 找到该子节点所属的设备名
     const deviceName = data.deviceName || currentDeviceName.value;
     // 构建 category 和 item 信息
-    // data.type 是分类 (如 "Data Model")，data.name 是项名 (如 "GenericLD")
+    // data.type 是分类 (如 "Data Model")，data.value 是完整过滤路径 (如 "GenericLD/MMXU1")
     const category = data.type || (data.isGroup ? data.name : '');
-    const item = data.isGroup ? '' : data.name;
+    const item = data.isGroup ? '' : (data.value || data.name);
     navigateToDevice(deviceName, false, true, { ...data, _category: category, _item: item });
   }
 };
@@ -434,7 +435,7 @@ const handleDeviceAdded = async (deviceName: string, isEdit?: boolean, oldName?:
     for (const node of nodes) {
       if (node.isGroup && node.children) {
         // 检查子节点是否由新设备
-        const hasDevice = node.children.some(child => !child.isGroup && child.name === deviceName);
+        const hasDevice = node.children.some((child: TreeNode) => !child.isGroup && child.name === deviceName);
         if (hasDevice) {
            if (!expandedKeys.value.includes(node.nodeKey)) {
              expandedKeys.value.push(node.nodeKey);

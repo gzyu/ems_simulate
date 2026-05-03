@@ -58,9 +58,10 @@ instance.interceptors.response.use(
  * @param url 请求路径
  * @param method 请求方法
  * @param data 请求数据
+ * @param timeout 可选超时时间（毫秒），覆盖默认值
  * @returns 响应 data 字段
  */
-export const requestApi = async (url: string, method: string, data: any): Promise<any> => {
-  const response = await instance.request({ url, method, data });
+export const requestApi = async (url: string, method: string, data: any, timeout?: number): Promise<any> => {
+  const response = await instance.request({ url, method, data, timeout });
   return response.data.data;
 };

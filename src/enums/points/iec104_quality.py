@@ -12,7 +12,7 @@ IEC 104 协议中，不同 ASDU 类型有不同的品质描述符格式：
     OV (Overflow):       溢出 — 遥测/遥调值超出表示范围
     BL (Blocked):        闭锁 — 值被闭锁（例如现场检修时闭锁）
     SB (Substituted):    取代 — 值被手动/自动取代
-    NT (Not Topical):    不刷新 — 值未更新（非当前值）
+    NT (Not Topical):    不刷新 — 值未更新（非真实值）
     IV (Invalid):        无效 — 值无效（设备故障等）
 
 设计模式:

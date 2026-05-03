@@ -216,33 +216,31 @@ class SlaveManager:
         try:
             from src.data.dao.point_dao import PointDao
 
-            deleted_count = 0
-
-            # 收集该从机下的所有测点 code
+            # 1. 从内存中收集该从机下的所有测点 code，用于清理 code_map
             point_codes: List[str] = []
-
             for dict_attr in ['yc_dict', 'yx_dict', 'yk_dict', 'yt_dict']:
                 d = getattr(self._pm, dict_attr)
                 if slave_id in d:
                     for point in d[slave_id]:
                         point_codes.append(point.code)
 
-            # 批量删除
+            # 2. 批量从数据库删除（单次事务）
+            deleted_count = PointDao.delete_points_by_slave(
+                self._device.device_id, slave_id
+            )
+
+            # 3. 清理内存中的 code_map
             for code in point_codes:
-                # 从数据库删除
-                if PointDao.delete_point_by_code(code):
-                    deleted_count += 1
-                # 从 code_map 移除
                 if code in self._pm.code_map:
                     del self._pm.code_map[code]
 
-            # 清空内存中的测点列表
+            # 4. 清空内存中的测点列表
             for dict_attr in ['yc_dict', 'yx_dict', 'yk_dict', 'yt_dict']:
                 d = getattr(self._pm, dict_attr)
                 if slave_id in d:
                     d[slave_id] = []
 
-            # IEC104 协议需要重新初始化
+            # 5. IEC104 协议需要重新初始化
             if self._device.protocol_type in [
                 ProtocolType.Iec104Server, ProtocolType.Iec104Client
             ]:

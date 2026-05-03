@@ -80,12 +80,40 @@
               <div
                 v-for="subChild in child.children"
                 :key="subChild.nodeKey"
-                class="iec61850-sub-item"
-                :class="{ 'is-selected': selectedNodeKey === subChild.nodeKey }"
-                @click="handleSubChildClick(subChild)"
+                class="iec61850-sub-item-wrapper"
               >
-                <el-icon class="sub-icon"><Document /></el-icon>
-                <span class="sub-label">{{ subChild.label }}</span>
+                <div
+                  class="iec61850-sub-item"
+                  :class="{ 'is-selected': selectedNodeKey === subChild.nodeKey, 'is-group': subChild.isGroup }"
+                  @click="handleSubChildClick(subChild, device.name)"
+                >
+                  <el-icon
+                    v-if="subChild.isGroup"
+                    class="expand-arrow small"
+                    :class="{ 'is-expanded': expandedCategories[`${device.name}::${subChild.nodeKey}`] }"
+                  >
+                    <ArrowRight />
+                  </el-icon>
+                  <span v-else class="expand-arrow-placeholder small" />
+                  <el-icon class="sub-icon">
+                    <FolderOpened v-if="subChild.isGroup" />
+                    <Document v-else />
+                  </el-icon>
+                  <span class="sub-label">{{ subChild.label }}</span>
+                </div>
+                <!-- LD 下的 LN 子节点 (第三层) -->
+                <div v-if="subChild.isGroup && subChild.children" v-show="expandedCategories[`${device.name}::${subChild.nodeKey}`]" class="iec61850-ln-children">
+                  <div
+                    v-for="lnChild in subChild.children"
+                    :key="lnChild.nodeKey"
+                    class="iec61850-ln-item"
+                    :class="{ 'is-selected': selectedNodeKey === lnChild.nodeKey }"
+                    @click="handleLnChildClick(lnChild)"
+                  >
+                    <el-icon class="ln-icon"><Document /></el-icon>
+                    <span class="ln-label">{{ lnChild.label }}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -108,6 +136,7 @@ interface TreeNode {
   isGroup: boolean;
   id: number;
   isIec61850Child?: boolean;
+  iec61850Level?: 'category' | 'ld' | 'ln';
   name: string;
   type?: 'GOOSE' | 'Reports' | 'SettingGroups' | 'Files' | 'DataSets' | 'Data Model';
   value?: string;
@@ -169,12 +198,21 @@ const handleChildClick = (deviceName: string, child: TreeNode) => {
   emit('node-click', { ...child, deviceName, isIec61850Child: true });
 };
 
-// 点击 IEC61850 子项
-const handleSubChildClick = (subChild: TreeNode) => {
+// 点击 IEC61850 子项 (LD 层)
+const handleSubChildClick = (subChild: TreeNode, deviceName: string) => {
   selectedNodeKey.value = subChild.nodeKey;
+  if (subChild.isGroup) {
+    toggleIec61850Category(deviceName, subChild.nodeKey);
+  }
   // 发出 node-click 事件，传递完整的节点信息
-  // subChild 需要知道所属的 deviceName 和 parent category
-  emit('node-click', { ...subChild, isIec61850Child: true, deviceName: subChild.deviceName });
+  emit('node-click', { ...subChild, isIec61850Child: true, deviceName: subChild.deviceName || deviceName });
+};
+
+// 点击 IEC61850 LN 子节点 (第三层)
+const handleLnChildClick = (lnChild: TreeNode) => {
+  selectedNodeKey.value = lnChild.nodeKey;
+  // 发出 node-click 事件，传递完整的节点信息
+  emit('node-click', { ...lnChild, isIec61850Child: true, deviceName: lnChild.deviceName });
 };
 
 // 当 iec61850Map 变化时，重置展开状态
@@ -431,5 +469,41 @@ watch(() => props.iec61850Map, () => {
 
 .sub-label {
   font-size: 12px;
+}
+
+/* LD 下的 LN 子节点 (第三层) */
+.iec61850-ln-children {
+  padding: 2px 0 4px 16px;
+}
+
+.iec61850-ln-item {
+  display: flex;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.iec61850-ln-item:hover {
+  background-color: var(--item-hover-bg);
+  color: var(--text-primary);
+}
+
+.iec61850-ln-item.is-selected {
+  background: var(--item-active-bg);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.ln-icon {
+  margin-right: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ln-label {
+  font-size: 11.5px;
 }
 </style>

@@ -125,16 +125,59 @@ class DataReader:
         if not all_points:
             return 0, 0
 
-        # 检查是否是 Modbus 客户端，支持批量读取
+        # 检查是否支持批量读取优化
         from src.device.protocol.modbus_handler import ModbusClientHandler
+        from src.device.protocol.iec61850_handler import IEC61850ClientHandler
         is_modbus_client = isinstance(self._handler, ModbusClientHandler)
+        is_iec61850_client = isinstance(self._handler, IEC61850ClientHandler)
 
         if is_modbus_client and hasattr(self._handler, 'read_registers_batch_async'):
-            # 使用批量读取优化
+            # Modbus 批量读取优化
             return await self._batch_read_async(all_points, interval_ms=interval_ms)
+        elif is_iec61850_client and hasattr(self._handler, 'read_points_batch'):
+            # IEC61850 批量读取优化
+            return await self._iec61850_batch_read_async(all_points)
         else:
             # 回退到逐点读取
             return await self._single_read_async(all_points)
+
+    async def _iec61850_batch_read_async(self, points: List[BasePoint]) -> Tuple[int, int]:
+        """IEC61850 批量读取模式
+
+        利用 IEC61850ClientHandler.read_points_batch 按 iec_type 分组读取，
+        减少类型判断开销，连接断开时快速失败。
+
+        Args:
+            points: 测点列表
+
+        Returns:
+            Tuple[int, int]: (成功点数, 失败点数)
+        """
+        import asyncio
+        change_source = self._get_change_source()
+        client_info = self._get_client_info()
+
+        # 在 executor 中执行同步批量读取 (避免阻塞事件循环)
+        loop = asyncio.get_running_loop()
+        batch_results = await loop.run_in_executor(
+            None, self._handler.read_points_batch, points
+        )
+
+        success_count = 0
+        fail_count = 0
+
+        for point in points:
+            value = batch_results.get(point.code)
+            if value is not None:
+                with track_change(change_source, f"IEC61850批量同步 {point.code}", client_info):
+                    point.value = value
+                point.is_valid = True
+                success_count += 1
+            else:
+                point.is_valid = False
+                fail_count += 1
+
+        return success_count, fail_count
 
     async def _single_read_async(self, points: List[BasePoint]) -> Tuple[int, int]:
         """逐点读取模式（回退方案）"""

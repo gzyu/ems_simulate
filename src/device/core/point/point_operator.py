@@ -284,7 +284,7 @@ class PointOperator:
             self._pm.code_map[new_code] = self._pm.code_map.pop(point_code)
             point.code = new_code
 
-        # 3. 如果配置发生变更，重新将当前值写入协议处理器
+        # 3. 如果配置发生变更，重新将真实值写入协议处理器
         if need_resync and self._handler:
             # IEC104 协议下 iec_type_id 变更需要重新同步（影响编码方式）
             protocol_type = self._device.protocol_type

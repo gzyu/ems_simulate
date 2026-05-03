@@ -155,6 +155,9 @@
           :total="tableDataMap[slave]?.total || 0"
           :activeFilters="activeFilters"
           :protocolType="protocolType"
+          :isIec61850="isIec61850"
+          :iec61850TreeData="iec61850TreeData"
+          :channelId="channelId"
           @update:pageSize="handlePageSizeChange"
           @update:pageIndex="handlePageIndexChange"
           @update:activeFilters="handleFilterChange"
@@ -212,7 +215,8 @@ import { ElMessage, ElMessageBox, type TabsPaneContext } from "element-plus";
 import { Search, Refresh, Download, Plus, Delete, CircleCloseFilled, MoreFilled } from "@element-plus/icons-vue";
 import { getSlaveIdList, getDeviceTable, getDeviceInfo, deleteSlave } from "@/api/deviceApi";
 import { instance } from "@/api/http";
-import { getIEC61850TableData } from "@/api/channelApi";
+import { getIEC61850TreeData } from "@/api/channelApi";
+import type { IEC61850TreeDataResponse } from "@/api/channelApi";
 import { clearPoints, resetPointData } from "@/api/pointApi";
 import { useAutoRead } from "@/composables";
 import { isIec61850Protocol } from "@/constants/protocol";
@@ -242,6 +246,9 @@ const channelId = ref<number | null>(null);
 // IEC61850 树形节点筛选
 const iec61850Category = ref<string>('');
 const iec61850Item = ref<string>('');
+
+// IEC61850 树形数据 (新接口)
+const iec61850TreeData = ref<IEC61850TreeDataResponse | null>(null);
 
 // 判断当前是否为 IEC61850 协议
 const isIec61850 = computed(() => {
@@ -278,8 +285,8 @@ const handleFilterChange = (filters: Record<string, any>) => {
   const prevFilters = activeFilters.value;
   activeFilters.value = filters;
   // 仅帧类型筛选变化时需要重新请求后端，IEC104类型筛选纯前端过滤
-  const prevFrameTypes = (prevFilters['帧类型'] || []).join(',');
-  const newFrameTypes = (filters['帧类型'] || []).join(',');
+  const prevFrameTypes = ((prevFilters['帧类型'] || []) as any[]).join(',');
+  const newFrameTypes = ((filters['帧类型'] || []) as any[]).join(',');
   if (prevFrameTypes !== newFrameTypes) {
     fetchDeviceTable(routeName.value, currentSlaveId.value, searchQuery.value[currentSlaveId.value] || "", pageIndex.value, pageSize.value);
   }
@@ -321,30 +328,29 @@ const fetchSlaveList = async () => {
 };
 
 const fetchDeviceTable = async (name: string, sid: number, q: string, pi: number, ps: number) => {
-  // 如果是 IEC61850 树节点筛选模式，使用专用接口
-  if (isIec61850Filtered.value && channelId.value !== null) {
-    const data = await getIEC61850TableData(
+  // IEC61850 使用新的树形接口
+  if (isIec61850.value && channelId.value !== null) {
+    const treeResp = await getIEC61850TreeData(
       channelId.value,
       iec61850Category.value,
       iec61850Item.value,
       q || null,
+      pointTypes.value,
       pi,
       ps,
-      pointTypes.value,
     );
-    if (data) {
-      if (!tableDataMap.value[sid]) {
-        tableDataMap.value[sid] = { tableHeader: [], tableData: [], total: 0 };
-      }
-      tableDataMap.value[sid] = {
-        tableHeader: data.get("head_data"),
-        tableData: data.get("table_data"),
-        total: data.get("total"),
-      };
-      if (sid === currentSlaveId.value) {
-        total.value = data.get("total");
-      }
+    iec61850TreeData.value = treeResp;
+    if (treeResp) {
+      total.value = treeResp.total;
     }
+    // IEC61850 树形模式使用固定表头
+    if (!tableDataMap.value[sid]) {
+      tableDataMap.value[sid] = { tableHeader: [], tableData: [], total: 0 };
+    }
+    tableDataMap.value[sid].tableHeader = [
+      "测点名称", "测点编码", "真实值", "状态",
+    ];
+    tableDataMap.value[sid].total = total.value;
     return;
   }
 

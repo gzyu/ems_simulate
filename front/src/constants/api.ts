@@ -21,6 +21,11 @@ export const CHANNEL_API = {
   IEC61850_STRUCTURE: (id: number) => `/api/channels/iec61850-structure/${id}`,
   IEC61850_READ_POINTS: (id: number) => `/api/channels/iec61850-read-points/${id}`,
   IEC61850_TABLE_DATA: (id: number) => `/api/channels/iec61850-table-data/${id}`,
+  IEC61850_DO_CHILDREN: (id: number) => `/api/channels/iec61850-do-children/${id}`,
+  IEC61850_DA_CHILDREN: (id: number) => `/api/channels/iec61850-da-children/${id}`,
+  IEC61850_TREE_DATA: (id: number) => `/api/channels/iec61850-tree-data/${id}`,
+  IEC61850_READ_POINT: (id: number) => `/api/channels/iec61850-read-point/${id}`,
+  IEC61850_WRITE_POINT: (id: number) => `/api/channels/iec61850-write-point/${id}`,
 } as const;
 
 // ===== 设备相关 =====
@@ -40,6 +45,7 @@ export const DEVICE_API = {
   MESSAGES: '/api/devices/messages',
   CLEAR_MESSAGES: '/api/devices/clear-messages',
   AVG_TIME: '/api/devices/avg-time',
+  IEC61850_CONNECT_PROGRESS: '/api/devices/iec61850-connect-progress',
   ADD_SLAVE: '/api/devices/add-slave',
   DELETE_SLAVE: '/api/devices/delete-slave',
   EDIT_SLAVE: '/api/devices/edit-slave',

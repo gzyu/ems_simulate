@@ -30,6 +30,7 @@ class Yc(BasePoint):
         decode: str = "0x41",
         iec_type_id: Optional[str] = None,
         iec_quality: Optional[int] = None,
+        fc: str = "",
     ) -> None:
         super().__init__(
             rtu_addr=rtu_addr,
@@ -42,6 +43,7 @@ class Yc(BasePoint):
             decode=decode,
             iec_type_id=iec_type_id,
             iec_quality=iec_quality,
+            fc=fc,
         )
 
         self._max_value_limit: float = float(max_value_limit)

@@ -82,7 +82,11 @@ async def reload_device_instance(device_controller, channel_id: int, is_start: b
     new_device.name = device_name
 
     if is_start and is_client_protocol(channel_protocol_type):
-        new_device.data_update_thread.start()
+        if channel_protocol_type == ProtocolType.Iec61850Client:
+            # IEC61850 客户端: 使用 start() 后台线程连接，而非仅启动数据更新线程
+            await new_device.start()
+        else:
+            new_device.data_update_thread.start()
 
     device_controller.device_list.append(new_device)
     device_controller.device_map[new_device.name] = new_device
