@@ -65,6 +65,7 @@ class GooseManager:
         entries: Optional[List[Dict[str, Any]]] = None,
         server: Optional[Any] = None,
         channel_id: Optional[int] = None,
+        force_recreate: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """创建 GOOSE Publisher
 
@@ -83,6 +84,7 @@ class GooseManager:
             entries: 数据集条目
             server: IEC61850Server 实例，提供后会在 MMS 数据模型中创建 GSEControlBlock 节点
             channel_id: 关联的通道 ID，提供后会持久化到数据库
+            force_recreate: 如果为 True，当 go_cb_ref 已存在时先删除再重新创建
         """
         if not GOOSE_AVAILABLE:
             log.error("GOOSE 功能不可用 (pyiec61850 未安装)")
@@ -90,9 +92,13 @@ class GooseManager:
 
         # 检查 go_cb_ref 是否已存在
         if go_cb_ref and go_cb_ref in self._gocbref_to_pid:
-            existing_id = self._gocbref_to_pid[go_cb_ref]
-            log.warning(f"GOOSE Publisher 已存在: go_cb_ref={go_cb_ref}, id={existing_id}")
-            return self.get_publisher_status(existing_id)
+            if force_recreate:
+                log.info(f"GOOSE Publisher 已存在但强制重新创建: go_cb_ref={go_cb_ref}")
+                self.delete_publisher(go_cb_ref, delete_from_db=False)
+            else:
+                existing_id = self._gocbref_to_pid[go_cb_ref]
+                log.warning(f"GOOSE Publisher 已存在: go_cb_ref={go_cb_ref}, id={existing_id}")
+                return self.get_publisher_status(existing_id)
 
         try:
             publisher = GoosePublisher(
@@ -130,10 +136,13 @@ class GooseManager:
                 self._channel_map[go_cb_ref] = channel_id
                 self.save_to_db(channel_id, go_cb_ref)
 
-            # 注册 GSEControlBlock 到 MMS 数据模型（不影响 Publisher 创建）
+            # 注册 GSEControlBlock 到 MMS 数据模型（同时传递 entries 用于 DataSet FCDA）
             if server is not None:
                 try:
                     gse_name = go_cb_ref.split("$")[-1] if "$" in go_cb_ref else go_cb_ref.split("/")[-1]
+                    # 从 go_cb_ref 中提取 LD 实例名
+                    # go_cb_ref 格式: "LD0/LLN0$GO$gcb1" -> ld_inst="LD0"
+                    go_ld_inst = go_cb_ref.split("/")[0] if "/" in go_cb_ref else None
                     server.add_goose_control_block(
                         name=gse_name,
                         app_id=app_id,
@@ -142,6 +151,8 @@ class GooseManager:
                         go_id=go_id,
                         min_time=10,
                         max_time=time_allowed_to_live,
+                        ld_inst=go_ld_inst,
+                        entries=entries,
                     )
                 except Exception as e:
                     log.warning(f"注册 GSEControlBlock 到 MMS 模型失败: {e}")
@@ -431,6 +442,8 @@ class GooseManager:
                     if server is not None:
                         try:
                             gse_name = go_cb_ref.split("$")[-1] if "$" in go_cb_ref else go_cb_ref.split("/")[-1]
+                            # 从 go_cb_ref 中提取 LD 实例名
+                            go_ld_inst = go_cb_ref.split("/")[0] if "/" in go_cb_ref else None
                             server.add_goose_control_block(
                                 name=gse_name,
                                 app_id=cfg.get("app_id", 0x0001),
@@ -439,6 +452,7 @@ class GooseManager:
                                 go_id=cfg.get("go_id", ""),
                                 min_time=10,
                                 max_time=cfg.get("time_allowed_to_live", 1000),
+                                ld_inst=go_ld_inst,
                             )
                         except Exception as gse_err:
                             log.warning(f"从数据库恢复时注册 GSEControlBlock 失败: {gse_err}")

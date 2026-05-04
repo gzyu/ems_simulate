@@ -133,6 +133,10 @@ class IEC61850Server:
         # 地址 -> iec_type 的映射
         self._point_iec_type: Dict[str, str] = {}
 
+        # 集成 GOOSE 发布配置
+        self._goose_interface: str = "eth0"          # GOOSE 网络接口
+        self._goose_cb_list: List[Dict[str, Any]] = []  # 跟踪已注册的 GoCB 条目
+
         # 标准子 DA (q.validity, q.source, t.seconds 等) 引用列表，
         # 用于服务器启动后初始化默认值，避免 IED Scout 因值为空显示红色感叹号
         # 每个元素: (da_object, bda_name, iec_type_str)
@@ -656,13 +660,27 @@ class IEC61850Server:
         # 设置 MMS TCP 端口
         iec61850.IedServer_setServerIdentity(self._server, "EMS", self.model_name, "1.0")
 
+        # 启用集成 GOOSE 发布服务
+        try:
+            iec61850.IedServer_setGooseInterfaceId(self._server, self._goose_interface)
+            log.info(f"GOOSE 网络接口已设置: {self._goose_interface}")
+        except Exception as e:
+            log.warning(f"设置 GOOSE 网络接口失败 ({self._goose_interface}): {e}")
+        try:
+            iec61850.IedServer_enableGoosePublishing(self._server)
+            log.info("GOOSE 发布服务已启用")
+        except Exception as e:
+            log.warning(f"启用 GOOSE 发布服务失败: {e}")
+
         self._is_running = True
         iec61850.IedServer_start(self._server, self.port)
 
         if iec61850.IedServer_isRunning(self._server):
-            log.info(f"IEC 61850 服务器已启动, 端口: {self.port}")
+            log.info(f"IEC 61850 服务器已启动, 端口: {self.port}, GOOSE 发布: 已启用")
             # 服务器启动后初始化 q/t 子 DA 的默认值，避免 IED Scout 读取时显示红色感叹号
             self._init_standard_bda_defaults()
+            # 启动后设置所有已注册 GoCB 的 GoEna=TRUE
+            self._enable_all_goose_cbs()
         else:
             self._is_running = False
             log.error(f"IEC 61850 服务器启动失败, 端口: {self.port}")
@@ -959,18 +977,21 @@ class IEC61850Server:
         ld_inst: str = None,
         entries: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
-        """在 LLN0 下创建 GSEControlBlock 和 DataSet 节点，使 MMS 客户端可发现
+        """在 LLN0 下创建 GSEControlBlock，使 MMS 客户端可发现 GOOSE
+
+        使用 libIEC61850 的 GSEControlBlock_create 创建标准 GoCB 结构，
+        同时将 FCDA 条目添加到 DataSet 中，确保客户端能发现完整的数据集结构。
 
         Args:
             name: GSEControlBlock 名称 (如 "gcb1")
             app_id: APPID
-            data_set_ref: DataSet 引用路径 (如 "GenericLD/LLN0$dsGOOSE1")
+            data_set_ref: DataSet 引用路径 (如 "LD0/LLN0$dsGOOSE1")
             conf_rev: 配置修订号
             go_id: GOOSE 标识符
             min_time: 最小重发时间 (ms)
             max_time: 最大重发时间 (ms)
             ld_inst: 逻辑设备实例名，默认使用 self.ld_name
-            entries: 数据集条目列表，每个条目标准 FCDA 引用路径
+            entries: 数据集条目列表，每个条目包含 name (fcda_ref), value, iec_type
 
         Returns:
             是否成功
@@ -983,11 +1004,10 @@ class IEC61850Server:
         lln0_key = f"{ld_inst}/LLN0"
         lln0 = self._ln_map.get(lln0_key)
         if lln0 is None and ld_inst == self.ld_name:
-            # 使用默认 LD 时，确保其已懒创建
             self._ensure_base_ld()
             lln0 = self._lln0
         if not lln0:
-            log.warning("无法添加 GSEControlBlock: LLN0 未找到")
+            log.warning(f"无法添加 GSEControlBlock: LLN0 未找到 (ld_inst={ld_inst})")
             return False
 
         try:
@@ -998,24 +1018,35 @@ class IEC61850Server:
                 log.warning(f"创建 DataSet {ds_name} 失败")
             else:
                 self._keep_alive.append(data_set)
+                # 为 DataSet 添加 FCDA 条目
+                self._add_fcda_entries_to_dataset(data_set, entries, ld_inst)
 
-            # 2. 创建 GSEControlBlock
-            # appId 参数要求是十六进制字符串 (如 "0001"), 不能是整数
+            # 2. 创建 GSEControlBlock (标准 libIEC61850 GoCB)
             app_id_str = f"{app_id:04X}" if isinstance(app_id, int) else str(app_id)
             gse_cb = iec61850.GSEControlBlock_create(
-                name,
-                lln0,
-                app_id_str,
-                data_set_ref,
-                conf_rev,
-                False,      # fixedOffs
-                min_time,
-                max_time,
+                name, lln0, app_id_str,
+                data_set_ref, conf_rev,
+                False, min_time, max_time,
             )
             if not gse_cb:
                 log.warning(f"创建 GSEControlBlock {name} 失败")
                 return False
             self._keep_alive.append(gse_cb)
+
+            # 3. 添加物理通信地址 (MAC/APPID/VLAN)
+            try:
+                iec61850.GSEControlBlock_addPhyComAddress(gse_cb, None)
+            except Exception as phy_err:
+                log.debug(f"添加 PhyComAddress 不可用 (非致命): {phy_err}")
+
+            # 4. 记录 GoCB 信息并设置 GoEna=TRUE（如果服务器已在运行）
+            self._goose_cb_list.append({
+                "ld_inst": ld_inst,
+                "name": name,
+                "app_id": app_id,
+            })
+            if self._server and self._is_running:
+                self._enable_single_goose_cb(ld_inst, name)
 
             log.info(
                 f"GSEControlBlock 已添加到 MMS 数据模型: "
@@ -1024,8 +1055,202 @@ class IEC61850Server:
             )
             return True
         except Exception as e:
-            log.error(f"添加 GSEControlBlock 失败: {e}")
+            log.error(f"添加 GSEControlBlock 失败: {e}", exc_info=True)
             return False
+
+    def _add_fcda_entries_to_dataset(
+        self,
+        data_set,
+        entries: Optional[List[Dict[str, Any]]],
+        default_ld_inst: str,
+    ) -> int:
+        """向 DataSet 添加 FCDA 条目，使客户端可发现数据集中的成员
+
+        Args:
+            data_set: pyiec61850 DataSet 对象
+            entries: 条目列表，每个条目含 name(fcda_ref), iec_type
+            default_ld_inst: 默认 LD 实例名（当 FCDA 引用不包含 LD 时使用）
+
+        Returns:
+            成功添加的 FCDA 数量
+        """
+        if not entries:
+            return 0
+
+        # FC 字符串 -> pyiec61850 常量映射
+        fc_str_to_const = {
+            "MX": getattr(iec61850, "IEC61850_FC_MX", None),
+            "ST": getattr(iec61850, "IEC61850_FC_ST", None),
+            "CO": getattr(iec61850, "IEC61850_FC_CO", None),
+            "CF": getattr(iec61850, "IEC61850_FC_CF", None),
+            "DC": getattr(iec61850, "IEC61850_FC_DC", None),
+            "SP": getattr(iec61850, "IEC61850_FC_SP", None),
+            "SV": getattr(iec61850, "IEC61850_FC_SV", None),
+            "SG": getattr(iec61850, "IEC61850_FC_SG", None),
+            "SR": getattr(iec61850, "IEC61850_FC_SR", None),
+            "OR": getattr(iec61850, "IEC61850_FC_OR", None),
+            "BL": getattr(iec61850, "IEC61850_FC_BL", None),
+            "MX": getattr(iec61850, "IEC61850_FC_MX", None),
+        }
+
+        # 类型 -> FC 推断映射
+        iec_type_to_fc = {
+            "boolean": "ST",
+            "float": "MX",
+            "integer": "ST",
+            "string": "DC",
+        }
+
+        # 根据 DA 名称推断 FC
+        da_to_fc = {
+            "stVal": "ST", "ctlVal": "CO", "mag": "MX",
+            "f": "MX", "q": "MX", "t": "MX", "dU": "DC",
+            "setVal": "CO", "setMag": "MX",
+            "seconds": "MX", "fraction": "MX",
+        }
+
+        added_count = 0
+
+        for entry in entries:
+            try:
+                fcda_ref = entry.get("name", "")
+                if not fcda_ref:
+                    continue
+
+                # 解析 FCDA 引用: "LD0/LLN0.GoCB1.stVal"
+                # 格式: {ld_inst}/{ln_name}.{do_name}.{da_name}
+                parsed = _parse_ref(fcda_ref)
+                if not parsed:
+                    log.warning(f"FCDA: 无法解析引用路径: {fcda_ref}, 跳过")
+                    continue
+
+                fcda_ld, fcda_ln, fcda_do, fcda_da = parsed
+                if not fcda_do:
+                    continue
+
+                # 推断 FC
+                fc_str = None
+                iec_type = entry.get("iec_type", "")
+                if iec_type and iec_type in iec_type_to_fc:
+                    fc_str = iec_type_to_fc[iec_type]
+                if not fc_str:
+                    # 从 DA 名称推断
+                    da_first = fcda_da.split(".")[0] if fcda_da else ""
+                    fc_str = da_to_fc.get(da_first)
+                if not fc_str:
+                    fc_str = "MX"  # 默认
+
+                fc_const = fc_str_to_const.get(fc_str)
+                if fc_const is None:
+                    fc_const = iec61850.IEC61850_FC_MX
+
+                # 尝试通过不同的 API 添加 FCDA 条目
+                entry_added = False
+
+                # 方法 1: Fcda_create + DataSet_addEntry (标准 API)
+                if hasattr(iec61850, "Fcda_create") and hasattr(iec61850, "DataSet_addEntry"):
+                    try:
+                        fcda_obj = iec61850.Fcda_create(
+                            fcda_ld, "", fcda_ln, "",
+                            fcda_do, fcda_da, fc_const,
+                        )
+                        if fcda_obj:
+                            iec61850.DataSet_addEntry(data_set, fcda_obj)
+                            entry_added = True
+                    except Exception as api_err:
+                        log.debug(f"Fcda_create/DataSet_addEntry 失败: {api_err}")
+
+                # 方法 2: DataSet_addEntry 只接受引用字符串
+                if not entry_added and hasattr(iec61850, "DataSet_addEntry"):
+                    try:
+                        # 构造 FCDA 引用字符串
+                        ref_parts = [fcda_ld, fcda_ln]
+                        if fcda_do:
+                            ref_parts.append(fcda_do)
+                        if fcda_da:
+                            ref_parts.append(fcda_da)
+                        fcda_ref_str = "/".join(ref_parts[:2]) + "." + ".".join(ref_parts[2:])
+                        iec61850.DataSet_addEntry(data_set, fcda_ref_str)
+                        entry_added = True
+                    except Exception as api_err:
+                        log.debug(f"DataSet_addEntry(字符串) 失败: {api_err}")
+
+                # 方法 3: DataSet_addFcda
+                if not entry_added and hasattr(iec61850, "DataSet_addFcda"):
+                    try:
+                        iec61850.DataSet_addFcda(
+                            data_set, fcda_ld, "",
+                            fcda_ln, "", fcda_do, fcda_da, fc_const,
+                        )
+                        entry_added = True
+                    except Exception as api_err:
+                        log.debug(f"DataSet_addFcda 失败: {api_err}")
+
+                if entry_added:
+                    added_count += 1
+                else:
+                    log.warning(
+                        f"无法为 DataSet 添加 FCDA 条目: {fcda_ref} "
+                        f"(当前 pyiec61850 版本可能不支持 DataSet_addEntry API)"
+                    )
+
+            except Exception as e:
+                log.debug(f"添加 FCDA 条目异常: {e}")
+
+        if added_count > 0:
+            log.info(f"DataSet 已添加 {added_count}/{len(entries)} 个 FCDA 条目")
+        elif entries:
+            log.info(
+                f"DataSet FCDA 条目添加失败 ({len(entries)} 个), "
+                f"但 GoCB 本身已被创建, 不影响 MMS 浏览发现 "
+                f"(GoCB 节点已存在于 LLN0 下)"
+            )
+
+        return added_count
+
+    def _enable_single_goose_cb(self, ld_inst: str, cb_name: str):
+        """设置单个 GoCB 的 GoEna=TRUE"""
+        if not self._server or not self._is_running:
+            return
+        conn = None
+        try:
+            conn = iec61850.IedConnection_create()
+            result = iec61850.IedConnection_connect(conn, "127.0.0.1", self.port)
+            error = result if not isinstance(result, (list, tuple)) else result[1]
+            if error != 0:
+                log.warning(f"设置 GoCB GoEna 时无法连接到自身: 127.0.0.1:{self.port}, error={error}")
+                return
+            ref = f"{self.model_name}{ld_inst}/LLN0.{cb_name}.GoEna"
+            iec61850.IedConnection_writeBooleanValue(
+                conn, ref, iec61850.IEC61850_FC_GO, True
+            )
+            log.info(f"GoCB GoEna 已设为 TRUE: ld={ld_inst}, cb={cb_name}")
+        except Exception as e:
+            log.warning(f"设置 GoCB GoEna 失败 (ld={ld_inst}, cb={cb_name}): {e}")
+        finally:
+            if conn:
+                try:
+                    iec61850.IedConnection_destroy(conn)
+                except Exception as destroy_err:
+                    log.debug(f"销毁 IedConnection 失败: {destroy_err}")
+
+    def _enable_all_goose_cbs(self):
+        """服务器启动后，设置所有已注册 GoCB 的 GoEna=TRUE"""
+        if not self._server or not self._is_running:
+            return
+        for cb_info in self._goose_cb_list:
+            self._enable_single_goose_cb(
+                cb_info["ld_inst"], cb_info["name"]
+            )
+
+    def set_goose_interface(self, interface: str):
+        """设置 GOOSE 网络接口"""
+        self._goose_interface = interface
+        if self._server:
+            try:
+                iec61850.IedServer_setGooseInterfaceId(self._server, interface)
+            except Exception:
+                pass
 
     def destroy(self):
         """销毁服务器和模型"""

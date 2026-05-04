@@ -65,6 +65,20 @@ async def create_goose_publisher(
         if not manager:
             return BaseResponse(code=500, message="GOOSE 管理器未初始化", data={})
 
+        # 根据 channel_id 查找对应的 IEC61850Server，用于注册 GSEControlBlock 到 MMS 模型
+        iec61850_server = None
+        if body.channel_id is not None:
+            try:
+                device_controller = getattr(request.app.state, "device_controller", None)
+                if device_controller:
+                    _device = device_controller.get_device_by_id(body.channel_id)
+                    if _device and hasattr(_device, 'protocol_handler') and _device.protocol_handler:
+                        _handler = _device.protocol_handler
+                        if hasattr(_handler, 'server'):
+                            iec61850_server = _handler.server
+            except Exception as e:
+                log.warning(f"获取 IEC61850Server 失败: {e}")
+
         result = manager.create_publisher(
             interface=body.interface,
             go_cb_ref=body.go_cb_ref,
@@ -81,6 +95,7 @@ async def create_goose_publisher(
                 {"name": e.name, "value": e.value, "iec_type": e.iec_type}
                 for e in body.entries
             ],
+            server=iec61850_server,
             channel_id=body.channel_id,
         )
         if result:
