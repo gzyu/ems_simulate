@@ -187,6 +187,13 @@ class DeviceController:
                     general_device_builder.setDeviceNetConfig(
                         port=port, ip=Config.DEFAULT_IP
                     )
+
+                # 传递 IEC61850 IED 模型名称
+                if channel_protocol_type in (ProtocolType.Iec61850Server, ProtocolType.Iec61850Client):
+                    model_name = channel.get("model_name")
+                    if model_name:
+                        general_device_builder.setDeviceModelName(model_name)
+
                 general_device = general_device_builder.makeGeneralDevice(
                     device_id=channel_id,
                     device_name=channel_name,

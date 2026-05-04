@@ -25,6 +25,7 @@ export interface TreeNode {
   type?: string;
   value?: string;
   iec61850Level?: 'category' | 'ld' | 'ln';
+  linkTo?: string;  // 导航链接 (如 GOOSE 节点导航到 /goose)
 }
 
 /**
@@ -68,6 +69,20 @@ export function buildIEC61850Children(structure: any, deviceName: string, keyPre
             children: lnChildren.length > 0 ? lnChildren : undefined,
           };
         });
+      } else if (cat.key === 'GOOSE') {
+        // GOOSE 分类: 整个分类和条目点击都导航到 GOOSE 管理页面
+        categoryChildren = items.map((item: string, itemIndex: number) => ({
+          nodeKey: `${keyPrefix}-${deviceName}-${cat.key}-${itemIndex}`,
+          label: item,
+          isGroup: false,
+          id: 0,
+          isIec61850Child: true,
+          iec61850Level: 'ld' as const,
+          name: item,
+          deviceName: deviceName,
+          type: cat.label,
+          linkTo: '/goose',
+        }));
       } else {
         // 其他分类: 仍然为扁平列表
         categoryChildren = items.map((item: string, itemIndex: number) => ({
@@ -93,6 +108,7 @@ export function buildIEC61850Children(structure: any, deviceName: string, keyPre
         name: cat.label,
         deviceName: deviceName,
         type: cat.label,
+        linkTo: cat.key === 'GOOSE' ? '/goose' : undefined,
         children: categoryChildren,
       });
     } else {
@@ -106,6 +122,7 @@ export function buildIEC61850Children(structure: any, deviceName: string, keyPre
         name: cat.label,
         deviceName: deviceName,
         type: cat.label,
+        linkTo: cat.key === 'GOOSE' ? '/goose' : undefined,
       });
     }
   });

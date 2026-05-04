@@ -87,7 +87,7 @@
 <script lang="ts" setup>
 import { ref, computed, watch } from 'vue';
 import type { ChannelCreateRequest, ProtocolOption } from '@/types/channel';
-import { BAUD_RATES, PROTOCOL_DEFAULT_PORTS } from '@/constants/protocol';
+import { BAUD_RATES, PROTOCOL_DEFAULT_PORTS, PROTOCOL_DEFAULT_CLIENT_IP } from '@/constants/protocol';
 
 const props = defineProps<{
   modelValue: ChannelCreateRequest;
@@ -111,11 +111,32 @@ const baudRates = BAUD_RATES;
 
 // 协议默认端口映射已提取到 @/constants/protocol
 
-// 监听协议切换，自动更新默认端口
+// 监听协议切换，自动更新默认端口和客户端默认IP
 watch(() => props.modelValue.protocol_type, (newType) => {
   const defaultPort = PROTOCOL_DEFAULT_PORTS[newType];
   if (defaultPort !== undefined) {
     props.modelValue.port = defaultPort;
+  }
+  // TCP 客户端模式时，自动设置协议默认 IP
+  if (props.modelValue.conn_type === 1) {
+    const defaultIp = PROTOCOL_DEFAULT_CLIENT_IP[newType];
+    if (defaultIp !== undefined) {
+      props.modelValue.ip = defaultIp;
+    } else {
+      props.modelValue.ip = '0.0.0.0';
+    }
+  }
+});
+
+// 监听连接模式切换，自动更新客户端默认IP
+watch(() => props.modelValue.conn_type, (newConnType) => {
+  if (newConnType === 1) {
+    // 切换为 TCP 客户端时，设置协议默认 IP
+    const defaultIp = PROTOCOL_DEFAULT_CLIENT_IP[props.modelValue.protocol_type];
+    props.modelValue.ip = defaultIp !== undefined ? defaultIp : '127.0.0.1';
+  } else if (newConnType === 2) {
+    // 切换为 TCP 服务端时，恢复监听所有 IP
+    props.modelValue.ip = '0.0.0.0';
   }
 });
 

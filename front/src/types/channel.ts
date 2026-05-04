@@ -86,4 +86,26 @@ export interface PointImportResult {
     yk_count: number;
     yt_count: number;
     total: number;
+    // GOOSE 配置 (ICD 导入时可能返回)
+    goose?: GooseImportData | null;
+}
+
+// GOOSE 导入数据
+export interface GooseImportData {
+    summary: {
+        gse_control_count: number;
+        gse_controls: {
+            go_cb_ref: string;
+            go_id: string;
+            app_id: string;
+            dat_set: string;
+            conf_rev: number;
+            mac_address: string;
+            dataset_member_count: number;
+        }[];
+    };
+    publishers: any[];
+    subscriptions: any[];
+    created_count: number;
+    errors: string[];
 }

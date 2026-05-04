@@ -61,11 +61,16 @@ class IcdPointImporter:
         self.yx_count = 0
         self.yk_count = 0
         self.yt_count = 0
+        self._ied_name: Optional[str] = None   # ICD 文件中的 IED 名称
 
         # DataTypeTemplates 缓存
         self._ln_types: Dict[str, ET.Element] = {}   # id -> LNodeType
         self._do_types: Dict[str, ET.Element] = {}   # id -> DOType
         self._da_types: Dict[str, ET.Element] = {}   # id -> DAType
+
+    def get_ied_name(self) -> Optional[str]:
+        """获取从 ICD 文件提取的 IED 名称"""
+        return self._ied_name
 
     def _clear_existing_points(self) -> None:
         """清除该通道已有的测点数据"""
@@ -115,6 +120,8 @@ class IcdPointImporter:
         # 遍历所有 IED -> Server -> LDevice -> LN
         for ied in root.iter(self._tag("IED")):
             ied_name = ied.get("name", "IED")
+            if self._ied_name is None:
+                self._ied_name = ied_name  # 保存第一个 IED 名称
 
             for ap in ied.iter(self._tag("AccessPoint")):
                 server = ap.find(self._tag("Server"))
@@ -281,6 +288,85 @@ class IcdPointImporter:
             f"遥控={self.yk_count}, 遥调={self.yt_count}"
         )
         return (self.yc_count, self.yx_count, self.yk_count, self.yt_count)
+
+    def preview_from_icd(self, file_path: str) -> Tuple[int, int, int, int]:
+        """预览 ICD 文件中的测点数量（只解析不保存）
+
+        Args:
+            file_path: ICD 文件路径
+
+        Returns:
+            (yc_count, yx_count, yk_count, yt_count) 各类型数量
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"文件不存在: {file_path}")
+
+        # 解析 XML（不执行清除和保存操作）
+        tree = ET.parse(file_path)
+        root = tree.getroot()
+        self._detect_namespace(root)
+        self._build_type_cache(root)
+
+        yc_points = []
+        yx_points = []
+        yk_points = []
+        yt_points = []
+
+        # 遍历所有 IED -> Server -> LDevice -> LN（与 import 逻辑一致，但不执行 DB 操作）
+        for ied in root.iter(self._tag("IED")):
+            for ap in ied.iter(self._tag("AccessPoint")):
+                server = ap.find(self._tag("Server"))
+                if server is None:
+                    continue
+                for ld in server.iter(self._tag("LDevice")):
+                    ld_inst = ld.get("inst", "LD0")
+                    for ln_elem in self._get_logical_nodes(ld):
+                        ln_class = ln_elem.get("lnClass", "")
+                        ln_inst = ln_elem.get("inst", "")
+                        ln_prefix = ln_elem.get("prefix", "")
+                        ln_type = ln_elem.get("lnType", "")
+                        if ln_elem.tag == self._tag("LN0") or ln_elem.tag == "LN0":
+                            ln_name = "LLN0"
+                        else:
+                            ln_name = f"{ln_prefix}{ln_class}{ln_inst}"
+                        ln_type_def = self._ln_types.get(ln_type)
+                        if ln_type_def is None:
+                            continue
+                        for do_elem in ln_type_def.findall(self._tag("DO")):
+                            do_name = do_elem.get("name", "")
+                            do_type_id = do_elem.get("type", "")
+                            do_type_def = self._do_types.get(do_type_id)
+                            if do_type_def is None:
+                                continue
+                            cdc = do_type_def.get("cdc", "")
+                            ref_prefix = f"{ld_inst}/{ln_name}.{do_name}"
+                            if cdc in CDC_YC:
+                                main_da_ref = self._get_value_ref(do_type_def, cdc, "MX")
+                                if main_da_ref:
+                                    yc_points.append({"code": f"{ld_inst}_{ln_name}_{do_name}_{main_da_ref.replace('.', '_')}"})
+                            elif cdc in CDC_YX:
+                                main_da_ref = self._get_value_ref(do_type_def, cdc, "ST")
+                                if main_da_ref:
+                                    yx_points.append({"code": f"{ld_inst}_{ln_name}_{do_name}_{main_da_ref.replace('.', '_')}"})
+                            elif cdc in CDC_YK:
+                                main_da_ref = self._get_control_ref(do_type_def, cdc)
+                                if main_da_ref:
+                                    yk_points.append({"code": f"{ld_inst}_{ln_name}_{do_name}_{main_da_ref.replace('.', '_')}"})
+                            elif cdc in CDC_YT:
+                                main_da_ref = self._get_control_ref(do_type_def, cdc)
+                                if main_da_ref:
+                                    yt_points.append({"code": f"{ld_inst}_{ln_name}_{do_name}_{main_da_ref.replace('.', '_')}"})
+
+        yc_count = len(yc_points)
+        yx_count = len(yx_points)
+        yk_count = len(yk_points)
+        yt_count = len(yt_points)
+
+        log.info(
+            f"ICD预览: 遥测={yc_count}, 遥信={yx_count}, "
+            f"遥控={yk_count}, 遥调={yt_count}"
+        )
+        return (yc_count, yx_count, yk_count, yt_count)
 
     def _detect_namespace(self, root: ET.Element) -> None:
         """检测 XML 根元素是否使用了 SCL 命名空间"""
@@ -733,9 +819,20 @@ class IcdPointImporter:
         """批量保存遥测测点"""
         if not points:
             return
+        # 按 (code, channel_id, rtu_addr) 去重，避免 UNIQUE 约束冲突
+        seen = set()
+        unique_points = []
+        for p in points:
+            key = (p["code"], self.channel_id, 1)
+            if key not in seen:
+                seen.add(key)
+                unique_points.append(p)
+        if len(unique_points) < len(points):
+            log.warning(f"遥测测点去重: 原始 {len(points)} 条，去重后 {len(unique_points)} 条")
+
         with local_session() as session:
             with session.begin():
-                for idx, p in enumerate(points):
+                for p in unique_points:
                     point = PointYc(
                         code=p["code"],
                         name=p["name"],
@@ -757,9 +854,20 @@ class IcdPointImporter:
         """批量保存遥信测点"""
         if not points:
             return
+        # 按 (code, channel_id, rtu_addr) 去重，避免 UNIQUE 约束冲突
+        seen = set()
+        unique_points = []
+        for p in points:
+            key = (p["code"], self.channel_id, 1)
+            if key not in seen:
+                seen.add(key)
+                unique_points.append(p)
+        if len(unique_points) < len(points):
+            log.warning(f"遥信测点去重: 原始 {len(points)} 条，去重后 {len(unique_points)} 条")
+
         with local_session() as session:
             with session.begin():
-                for p in points:
+                for p in unique_points:
                     point = PointYx(
                         code=p["code"],
                         name=p["name"],
@@ -779,9 +887,20 @@ class IcdPointImporter:
         """批量保存遥控测点"""
         if not points:
             return
+        # 按 (code, channel_id, rtu_addr) 去重，避免 UNIQUE 约束冲突
+        seen = set()
+        unique_points = []
+        for p in points:
+            key = (p["code"], self.channel_id, 1)
+            if key not in seen:
+                seen.add(key)
+                unique_points.append(p)
+        if len(unique_points) < len(points):
+            log.warning(f"遥控测点去重: 原始 {len(points)} 条，去重后 {len(unique_points)} 条")
+
         with local_session() as session:
             with session.begin():
-                for p in points:
+                for p in unique_points:
                     point = PointYk(
                         code=p["code"],
                         name=p["name"],
@@ -801,9 +920,20 @@ class IcdPointImporter:
         """批量保存遥调测点"""
         if not points:
             return
+        # 按 (code, channel_id, rtu_addr) 去重，避免 UNIQUE 约束冲突
+        seen = set()
+        unique_points = []
+        for p in points:
+            key = (p["code"], self.channel_id, 1)
+            if key not in seen:
+                seen.add(key)
+                unique_points.append(p)
+        if len(unique_points) < len(points):
+            log.warning(f"遥调测点去重: 原始 {len(points)} 条，去重后 {len(unique_points)} 条")
+
         with local_session() as session:
             with session.begin():
-                for p in points:
+                for p in unique_points:
                     point = PointYt(
                         code=p["code"],
                         name=p["name"],

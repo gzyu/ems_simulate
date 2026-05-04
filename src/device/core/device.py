@@ -61,6 +61,7 @@ class Device:
         self.meter_address: str = "000000000000"
         self.device_type: DeviceType = DeviceType.Other
         self.protocol_type: ProtocolType = protocol_type
+        self.model_name: Optional[str] = None  # IED 模型名称 (IEC61850)
 
         # 核心组件
         self.point_manager: PointManager = PointManager()
@@ -166,6 +167,7 @@ class Device:
             "slave_id_list": self.slave_id_list,
             "protocol_type": self.protocol_type,
             "meter_address": self.meter_address,
+            "model_name": self.model_name,
         }
 
     def initProtocol(self) -> None:

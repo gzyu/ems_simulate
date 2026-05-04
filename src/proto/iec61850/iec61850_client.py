@@ -148,12 +148,17 @@ _EXTRA_DA_INFO = {
 _BDA_TYPE_MAP = {
     # Quality (q) 的 BDA
     "validity": IEC_TYPE_INTEGER,
+    "detailQuality": IEC_TYPE_INTEGER,
     "source": IEC_TYPE_INTEGER,
     "operatorBlocked": IEC_TYPE_BOOLEAN,
     "test": IEC_TYPE_BOOLEAN,
     # Timestamp (t) 的 BDA
     "seconds": IEC_TYPE_INTEGER,
     "fraction": IEC_TYPE_INTEGER,
+    "LeapSecondsKnown": IEC_TYPE_BOOLEAN,
+    "ClockedFailure": IEC_TYPE_BOOLEAN,
+    "ClockNotSynchronized": IEC_TYPE_BOOLEAN,
+    "TimeAccuracy": IEC_TYPE_INTEGER,
     # Origin 的 BDA
     "orCat": IEC_TYPE_INTEGER,
     "orIdent": IEC_TYPE_UNKNOWN,  # Octet string

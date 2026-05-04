@@ -32,7 +32,7 @@ export interface TreeResponse {
 
 export async function getPointTree(): Promise<DeviceNode[]> {
   try {
-    return await requestApi(POINT_TREE_API.TREE, 'get', null);
+    return await requestApi(POINT_TREE_API.TREE, 'post', null);
   } catch (error) {
     console.error('Error fetching point tree:', error);
     throw error;

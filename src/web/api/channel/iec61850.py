@@ -17,26 +17,66 @@ router = APIRouter(tags=["channel"])
 # ===== IEC61850 POST 请求模型 =====
 
 class Iec61850ReadPointsRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
     category: str = Field("", description="IED/LD 分类过滤")
     item: str = Field("", description="LN 实例过滤")
     interval_ms: int = Field(0, description="读取间隔(ms)")
 
 
 class Iec61850ReadPointRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
     point_code: str = Field(..., description="测点编码")
 
 
 class Iec61850WritePointRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
     point_code: str = Field(..., description="测点编码")
     point_value: Union[float, str] = Field(0, description="写入值")
+
+
+class Iec61850StructureRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
+
+
+class Iec61850TreeDataRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
+    category: str = Field("", description="IED/LD 分类过滤")
+    item: str = Field("", description="LN 实例过滤")
+    point_name: Optional[str] = Field(None, description="测点名称过滤")
+    point_types: str = Field("", description="帧类型过滤")
+    page_index: int = Field(1, description="页码")
+    page_size: int = Field(10, description="每页条数")
+
+
+class Iec61850TableDataRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
+    category: str = Field("", description="IED/LD 分类过滤")
+    item: str = Field("", description="LN 实例过滤")
+    point_name: Optional[str] = Field(None, description="测点名称过滤")
+    page_index: int = Field(1, description="页码")
+    page_size: int = Field(10, description="每页条数")
+    point_types: str = Field("", description="帧类型过滤")
+
+
+class Iec61850DoChildrenRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
+    ld: str = Field("", description="逻辑设备名")
+    ln: str = Field("", description="逻辑节点名")
+
+
+class Iec61850DaChildrenRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
+    ld: str = Field("", description="逻辑设备名")
+    ln: str = Field("", description="逻辑节点名")
+    do_name: str = Field("", description="数据对象名")
 
 
 # ===== IEC 61850 树形数据常量 =====
 
 # 已知结构体 DA 的 BDA 子节点
 KNOWN_STRUCT_DA_BDAS: Dict[str, List[str]] = {
-    "q": ["validity", "source", "operatorBlocked", "test"],
-    "t": ["seconds", "fraction"],
+    "q": ["validity", "detailQuality", "source", "operatorBlocked", "test"],
+    "t": ["seconds", "fraction", "LeapSecondsKnown", "ClockedFailure", "ClockNotSynchronized", "TimeAccuracy"],
     "origin": ["orCat", "orIdent"],
 }
 
@@ -147,6 +187,10 @@ def _build_iec61850_tree(
 
     if point_types is None:
         point_types = [0, 1, 2, 3]
+
+    # category 过滤: 非 Data Model 分类 (如 GOOSE/Reports) 无 MMS 测点
+    if category and category != "Data Model":
+        return {"items": [], "total": 0}
 
     # 1. 收集所有测点, 构建 DO 分组
     do_map: Dict[str, Dict[str, Any]] = {}  # do_ref → {do_info, children_map}
@@ -373,20 +417,14 @@ def _build_iec61850_tree(
     return {"items": items, "total": len(items)}
 
 
-@router.get("/iec61850-tree-data/{channel_id}", response_model=BaseResponse)
+@router.post("/iec61850-tree-data", response_model=BaseResponse)
 async def get_iec61850_tree_data(
-    channel_id: int,
+    body: Iec61850TreeDataRequest,
     request: Request,
-    category: str = "",
-    item: str = "",
-    point_name: str | None = None,
-    point_types: str = "",
-    page_index: int = 1,
-    page_size: int = 10,
 ):
     """获取 IEC61850 树形表格数据 (按 DO→DA→BDA 层级返回，支持 DO 级分页)"""
     try:
-        channel = ChannelService.get_channel_by_id(channel_id)
+        channel = ChannelService.get_channel_by_id(body.channel_id)
         if not channel:
             return BaseResponse(code=404, message="通道不存在", data={})
 
@@ -395,14 +433,14 @@ async def get_iec61850_tree_data(
             return BaseResponse(code=400, message="该通道不是 IEC61850 协议", data={})
 
         device_controller = request.app.state.device_controller
-        device = device_controller.get_device_by_channel_id(channel_id)
+        device = device_controller.get_device_by_channel_id(body.channel_id)
         if not device:
             return BaseResponse(code=404, message="设备未找到", data={})
 
         pt_filter = []
-        if point_types:
+        if body.point_types:
             try:
-                pt_filter = [int(t.strip()) for t in point_types.split(",") if t.strip().isdigit()]
+                pt_filter = [int(t.strip()) for t in body.point_types.split(",") if t.strip().isdigit()]
             except Exception:
                 pt_filter = []
         if not pt_filter:
@@ -414,17 +452,17 @@ async def get_iec61850_tree_data(
         # 构建树形结构
         tree_data = _build_iec61850_tree(
             all_points,
-            category=category,
-            item=item,
-            point_name=point_name,
+            category=body.category,
+            item=body.item,
+            point_name=body.point_name,
             point_types=pt_filter,
         )
 
         # DO 级分页
         all_items = tree_data["items"]
         total = tree_data["total"]
-        start = (page_index - 1) * page_size
-        end = start + page_size
+        start = (body.page_index - 1) * body.page_size
+        end = start + body.page_size
         paged_items = all_items[start:end]
 
         return BaseResponse(message="获取 IEC61850 树形数据成功", data={
@@ -436,11 +474,11 @@ async def get_iec61850_tree_data(
         return BaseResponse(code=500, message=f"获取 IEC61850 树形数据失败: {e}", data={})
 
 
-@router.get("/iec61850-structure/{channel_id}", response_model=BaseResponse)
-async def get_iec61850_structure(channel_id: int, request: Request):
+@router.post("/iec61850-structure", response_model=BaseResponse)
+async def get_iec61850_structure(body: Iec61850StructureRequest, request: Request):
     """获取 IEC61850 设备的子节点结构树"""
     try:
-        channel = ChannelService.get_channel_by_id(channel_id)
+        channel = ChannelService.get_channel_by_id(body.channel_id)
         if not channel:
             return BaseResponse(code=404, message="通道不存在", data={})
 
@@ -449,7 +487,7 @@ async def get_iec61850_structure(channel_id: int, request: Request):
             return BaseResponse(code=400, message="该通道不是 IEC61850 协议", data={})
 
         device_controller = request.app.state.device_controller
-        device = device_controller.get_device_by_channel_id(channel_id)
+        device = device_controller.get_device_by_channel_id(body.channel_id)
         if not device:
             return BaseResponse(code=404, message="设备未找到，请确认设备已创建", data={})
 
@@ -475,8 +513,23 @@ async def get_iec61850_structure(channel_id: int, request: Request):
                     lns = server.browse_logical_nodes(ld) if hasattr(server, 'browse_logical_nodes') else []
                     data_model.append({"name": ld, "children": lns})
 
+        # 获取 GOOSE 信息
+        goose_items = []
+        goose_manager = getattr(request.app.state, 'goose_manager', None)
+        if goose_manager:
+            try:
+                goose_status = goose_manager.get_all_status()
+                # 列出所有 Publisher
+                for pub in goose_status.get("publishers", []):
+                    goose_items.append(f"Pub: {pub.get('go_cb_ref', '')} ({'运行' if pub.get('is_running') else '停止'})")
+                # 列出所有 Receiver
+                for recv in goose_status.get("receivers", []):
+                    goose_items.append(f"Recv: {recv.get('interface', '')} ({'运行' if recv.get('is_running') else '停止'})")
+            except Exception as e:
+                log.warning(f"获取 GOOSE 状态失败: {e}")
+
         structure = {
-            "GOOSE": [], "Reports": [], "SettingGroups": [],
+            "GOOSE": goose_items, "Reports": [], "SettingGroups": [],
             "Files": [], "DataSets": [], "Data Model": data_model,
         }
         return BaseResponse(message="获取 IEC61850 结构成功", data=structure)
@@ -485,20 +538,14 @@ async def get_iec61850_structure(channel_id: int, request: Request):
         return BaseResponse(code=500, message=f"获取 IEC61850 结构失败: {e}", data={})
 
 
-@router.get("/iec61850-table-data/{channel_id}", response_model=BaseResponse)
+@router.post("/iec61850-table-data", response_model=BaseResponse)
 async def get_iec61850_table_data(
-    channel_id: int,
+    body: Iec61850TableDataRequest,
     request: Request,
-    category: str = "",
-    item: str = "",
-    point_name: str | None = None,
-    page_index: int = 1,
-    page_size: int = 10,
-    point_types: str = "",
 ):
     """根据 IEC61850 左侧树形节点获取当前表格数据"""
     try:
-        channel = ChannelService.get_channel_by_id(channel_id)
+        channel = ChannelService.get_channel_by_id(body.channel_id)
         if not channel:
             return BaseResponse(code=404, message="通道不存在", data={})
 
@@ -507,14 +554,14 @@ async def get_iec61850_table_data(
             return BaseResponse(code=400, message="该通道不是 IEC61850 协议", data={})
 
         device_controller = request.app.state.device_controller
-        device = device_controller.get_device_by_channel_id(channel_id)
+        device = device_controller.get_device_by_channel_id(body.channel_id)
         if not device:
             return BaseResponse(code=404, message="设备未找到", data={})
 
         pt_filter = []
-        if point_types:
+        if body.point_types:
             try:
-                pt_filter = [int(t.strip()) for t in point_types.split(",") if t.strip().isdigit()]
+                pt_filter = [int(t.strip()) for t in body.point_types.split(",") if t.strip().isdigit()]
             except Exception:
                 pt_filter = []
         if not pt_filter:
@@ -525,21 +572,21 @@ async def get_iec61850_table_data(
 
         for slave_id in device.slave_id_list:
             table_data, _ = device.get_table_data(
-                slave_id=slave_id, name=point_name,
+                slave_id=slave_id, name=body.point_name,
                 page_index=None, page_size=None, point_types=pt_filter,
             )
             all_table_rows.extend(table_data)
 
-        filtered_rows = _filter_iec61850_rows(all_table_rows, category, item)
+        filtered_rows = _filter_iec61850_rows(all_table_rows, body.category, body.item)
         total_count = len(filtered_rows)
 
-        start = (page_index - 1) * page_size
-        end = start + page_size
+        start = (body.page_index - 1) * body.page_size
+        end = start + body.page_size
         paged_rows = filtered_rows[start:end]
 
         data_dict = {
             "total": total_count, "head_data": head_data,
-            "table_data": paged_rows, "category": category, "item": item,
+            "table_data": paged_rows, "category": body.category, "item": body.item,
         }
         return BaseResponse(message="获取 IEC61850 表格数据成功", data=data_dict)
     except Exception as e:
@@ -547,19 +594,14 @@ async def get_iec61850_table_data(
         return BaseResponse(code=500, message=f"获取 IEC61850 表格数据失败: {e}", data={})
 
 
-@router.post("/iec61850-read-points/{channel_id}", response_model=BaseResponse)
+@router.post("/iec61850-read-points", response_model=BaseResponse)
 async def iec61850_read_points(
-    channel_id: int,
-    request: Request,
     body: Iec61850ReadPointsRequest,
+    request: Request,
 ):
-    """根据 IEC61850 左侧树形节点过滤，批量读取对应测点的值
-
-    优化策略: 使用 IEC61850ClientHandler.read_points_batch 按 iec_type 分组读取,
-    减少类型判断开销, 连接断开时快速失败。
-    """
+    """根据 IEC61850 左侧树形节点过滤，批量读取对应测点的值"""
     try:
-        channel = ChannelService.get_channel_by_id(channel_id)
+        channel = ChannelService.get_channel_by_id(body.channel_id)
         if not channel:
             return BaseResponse(code=404, message="通道不存在", data={})
 
@@ -568,7 +610,7 @@ async def iec61850_read_points(
             return BaseResponse(code=400, message="该通道不是 IEC61850 协议", data={})
 
         device_controller = request.app.state.device_controller
-        device = device_controller.get_device_by_channel_id(channel_id)
+        device = device_controller.get_device_by_channel_id(body.channel_id)
         if not device:
             return BaseResponse(code=404, message="设备未找到", data={})
 
@@ -645,6 +687,10 @@ def _get_iec61850_filtered_points(device, category: str, item: str) -> list[Base
     """根据 IEC61850 树节点的 category 和 item 获取过滤后的测点对象列表"""
     from src.enums.point_data import Yc, Yx, Yk, Yt
 
+    # GOOSE/Reports 等非 Data Model 分类没有 MMS 测点
+    if category and category != "Data Model":
+        return []
+
     all_points = []
     pm = device.point_manager
     for slave_id in device.slave_id_list:
@@ -661,8 +707,6 @@ def _get_iec61850_filtered_points(device, category: str, item: str) -> list[Base
         result = []
         for point in all_points:
             address = str(point.address) if hasattr(point, 'address') else ""
-            # LD 级别过滤: item="GenericLD" → address 以 "GenericLD/" 开头
-            # LN 级别过滤: item="GenericLD/MMXU1" → address 以 "GenericLD/MMXU1." 或 "GenericLD/MMXU1/" 开头
             if address.startswith(f"{item}/") or address.startswith(f"{item}."):
                 result.append(point)
         return result
@@ -670,16 +714,14 @@ def _get_iec61850_filtered_points(device, category: str, item: str) -> list[Base
     return all_points
 
 
-@router.get("/iec61850-do-children/{channel_id}", response_model=BaseResponse)
+@router.post("/iec61850-do-children", response_model=BaseResponse)
 async def get_iec61850_do_children(
-    channel_id: int,
+    body: Iec61850DoChildrenRequest,
     request: Request,
-    ld: str = "",
-    ln: str = "",
 ):
     """获取 IEC61850 指定 LN 下的数据对象 (DO) 列表"""
     try:
-        channel = ChannelService.get_channel_by_id(channel_id)
+        channel = ChannelService.get_channel_by_id(body.channel_id)
         if not channel:
             return BaseResponse(code=404, message="通道不存在", data={})
 
@@ -688,7 +730,7 @@ async def get_iec61850_do_children(
             return BaseResponse(code=400, message="该通道不是 IEC61850 协议", data={})
 
         device_controller = request.app.state.device_controller
-        device = device_controller.get_device_by_channel_id(channel_id)
+        device = device_controller.get_device_by_channel_id(body.channel_id)
         if not device:
             return BaseResponse(code=404, message="设备未找到", data={})
 
@@ -698,11 +740,11 @@ async def get_iec61850_do_children(
             if hasattr(protocol_handler, '_client') and protocol_handler._client:
                 client = protocol_handler._client
                 if hasattr(client, 'browse_data_objects'):
-                    do_items = client.browse_data_objects(ld, ln)
+                    do_items = client.browse_data_objects(body.ld, body.ln)
             elif hasattr(protocol_handler, '_server') and protocol_handler._server:
                 server = protocol_handler._server
                 if hasattr(server, 'browse_data_objects'):
-                    do_items = server.browse_data_objects(ld, ln)
+                    do_items = server.browse_data_objects(body.ld, body.ln)
 
         return BaseResponse(message="获取 DO 列表成功", data={"items": do_items})
     except Exception as e:
@@ -710,17 +752,14 @@ async def get_iec61850_do_children(
         return BaseResponse(code=500, message=f"获取 DO 列表失败: {e}", data={})
 
 
-@router.get("/iec61850-da-children/{channel_id}", response_model=BaseResponse)
+@router.post("/iec61850-da-children", response_model=BaseResponse)
 async def get_iec61850_da_children(
-    channel_id: int,
+    body: Iec61850DaChildrenRequest,
     request: Request,
-    ld: str = "",
-    ln: str = "",
-    do_name: str = "",
 ):
     """获取 IEC61850 指定 DO 下的数据属性 (DA) 列表"""
     try:
-        channel = ChannelService.get_channel_by_id(channel_id)
+        channel = ChannelService.get_channel_by_id(body.channel_id)
         if not channel:
             return BaseResponse(code=404, message="通道不存在", data={})
 
@@ -729,7 +768,7 @@ async def get_iec61850_da_children(
             return BaseResponse(code=400, message="该通道不是 IEC61850 协议", data={})
 
         device_controller = request.app.state.device_controller
-        device = device_controller.get_device_by_channel_id(channel_id)
+        device = device_controller.get_device_by_channel_id(body.channel_id)
         if not device:
             return BaseResponse(code=404, message="设备未找到", data={})
 
@@ -739,11 +778,11 @@ async def get_iec61850_da_children(
             if hasattr(protocol_handler, '_client') and protocol_handler._client:
                 client = protocol_handler._client
                 if hasattr(client, 'browse_data_attributes'):
-                    da_items = client.browse_data_attributes(ld, ln, do_name)
+                    da_items = client.browse_data_attributes(body.ld, body.ln, body.do_name)
             elif hasattr(protocol_handler, '_server') and protocol_handler._server:
                 server = protocol_handler._server
                 if hasattr(server, 'browse_data_attributes'):
-                    da_items = server.browse_data_attributes(ld, ln, do_name)
+                    da_items = server.browse_data_attributes(body.ld, body.ln, body.do_name)
 
         return BaseResponse(message="获取 DA 列表成功", data={"items": da_items})
     except Exception as e:
@@ -756,12 +795,13 @@ def _filter_iec61850_rows(rows: list[str], category: str, item: str) -> list[str
     if not category:
         return rows
 
+    if category and category != "Data Model":
+        return []
+
     if category == "Data Model" and item:
         result = []
         for row in rows:
             address = str(row[0]) if row else ""
-            # LD 级别过滤: item="GenericLD" → address 以 "GenericLD/" 开头
-            # LN 级别过滤: item="GenericLD/MMXU1" → address 以 "GenericLD/MMXU1." 或 "GenericLD/MMXU1/" 开头
             if address.startswith(f"{item}/") or address.startswith(f"{item}."):
                 result.append(row)
         return result
@@ -769,15 +809,14 @@ def _filter_iec61850_rows(rows: list[str], category: str, item: str) -> list[str
     return rows
 
 
-@router.post("/iec61850-read-point/{channel_id}", response_model=BaseResponse)
+@router.post("/iec61850-read-point", response_model=BaseResponse)
 async def iec61850_read_single_point(
-    channel_id: int,
-    request: Request,
     body: Iec61850ReadPointRequest,
+    request: Request,
 ):
     """IEC61850 单点读取 - 通过 channel_id 定位设备，读取指定测点的值"""
     try:
-        channel = ChannelService.get_channel_by_id(channel_id)
+        channel = ChannelService.get_channel_by_id(body.channel_id)
         if not channel:
             return BaseResponse(code=404, message="通道不存在", data={})
 
@@ -786,7 +825,7 @@ async def iec61850_read_single_point(
             return BaseResponse(code=400, message="该通道不是 IEC61850 协议", data={})
 
         device_controller = request.app.state.device_controller
-        device = device_controller.get_device_by_channel_id(channel_id)
+        device = device_controller.get_device_by_channel_id(body.channel_id)
         if not device:
             return BaseResponse(code=404, message="设备未找到", data={})
 
@@ -803,19 +842,14 @@ async def iec61850_read_single_point(
         return BaseResponse(code=500, message=f"IEC61850 单点读取失败: {e}", data={})
 
 
-@router.post("/iec61850-write-point/{channel_id}", response_model=BaseResponse)
+@router.post("/iec61850-write-point", response_model=BaseResponse)
 async def iec61850_write_single_point(
-    channel_id: int,
-    request: Request,
     body: Iec61850WritePointRequest,
+    request: Request,
 ):
-    """IEC61850 单点写入 - 通过 channel_id 定位设备，写入指定测点的值
-
-    服务端设备: 设置本地数据模型的值 (仿真设置)
-    客户端设备: 向远程服务器发送控制命令 (仅限遥控/遥调)
-    """
+    """IEC61850 单点写入 - 通过 channel_id 定位设备，写入指定测点的值"""
     try:
-        channel = ChannelService.get_channel_by_id(channel_id)
+        channel = ChannelService.get_channel_by_id(body.channel_id)
         if not channel:
             return BaseResponse(code=404, message="通道不存在", data={})
 
@@ -824,7 +858,7 @@ async def iec61850_write_single_point(
             return BaseResponse(code=400, message="该通道不是 IEC61850 协议", data={})
 
         device_controller = request.app.state.device_controller
-        device = device_controller.get_device_by_channel_id(channel_id)
+        device = device_controller.get_device_by_channel_id(body.channel_id)
         if not device:
             return BaseResponse(code=404, message="设备未找到", data={})
 

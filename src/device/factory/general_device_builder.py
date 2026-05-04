@@ -50,6 +50,10 @@ class GeneralDeviceBuilder:
         self.general_device.port = port
         self.general_device.ip = ip
 
+    def setDeviceModelName(self, model_name: str) -> None:
+        """设置设备模型名称 (IEC61850 IED 名称)"""
+        self.general_device.model_name = model_name
+
     def setDeviceSerialConfig(
         self, 
         serial_port: str, 

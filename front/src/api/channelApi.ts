@@ -114,7 +114,7 @@ export interface IEC61850TreeDataResponse {
 
 export async function getProtocolConfig(): Promise<ProtocolConfigResponse> {
   try {
-    return await requestApi(CHANNEL_API.PROTOCOLS, 'get', null);
+    return await requestApi(CHANNEL_API.PROTOCOLS, 'post', null);
   } catch (error) {
     console.error('Error fetching protocol config:', error);
     throw error;
@@ -123,7 +123,7 @@ export async function getProtocolConfig(): Promise<ProtocolConfigResponse> {
 
 export async function getSerialPorts(): Promise<Array<{ device: string; description: string }>> {
   try {
-    return await requestApi(CHANNEL_API.SERIAL_PORTS, 'get', null);
+    return await requestApi(CHANNEL_API.SERIAL_PORTS, 'post', null);
   } catch (error) {
     console.error('Error fetching serial ports:', error);
     throw error;
@@ -154,11 +154,37 @@ export async function importPoints(channelId: number, file: File): Promise<Point
   }
 }
 
-export async function importIcdPoints(channelId: number, file: File): Promise<PointImportResult> {
+/** 预览 ICD/SCD/CID 文件（只解析不保存） */
+export async function previewIcd(
+  file: File,
+  interfaceName: string = 'eth0',
+): Promise<PointImportResult> {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('interface', interfaceName);
+    const response = await instance.post(CHANNEL_API.PREVIEW_ICD, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data.data;
+  } catch (error) {
+    console.error('Error previewing ICD file:', error);
+    throw error;
+  }
+}
+
+export async function importIcdPoints(
+  channelId: number,
+  file: File,
+  interfaceName: string = 'eth0',
+  autoCreateGoose: boolean = false,
+): Promise<PointImportResult> {
   try {
     const formData = new FormData();
     formData.append('channel_id', channelId.toString());
     formData.append('file', file);
+    formData.append('interface', interfaceName);
+    formData.append('auto_create_goose', autoCreateGoose.toString());
     const response = await instance.post(CHANNEL_API.IMPORT_ICD, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -180,8 +206,7 @@ export async function createAndStartDevice(channelId: number): Promise<{ device_
 
 export async function deleteChannel(channelId: number): Promise<boolean> {
   try {
-    const response = await instance.delete(CHANNEL_API.DELETE(channelId));
-    return response.data.data;
+    return await requestApi(CHANNEL_API.DELETE, 'post', { channel_id: channelId });
   } catch (error) {
     console.error('Error deleting channel:', error);
     throw error;
@@ -190,7 +215,7 @@ export async function deleteChannel(channelId: number): Promise<boolean> {
 
 export async function getChannelList(): Promise<ChannelInfo[]> {
   try {
-    return await requestApi(CHANNEL_API.LIST, 'get', null);
+    return await requestApi(CHANNEL_API.LIST, 'post', null);
   } catch (error) {
     console.error('Error fetching channel list:', error);
     throw error;
@@ -199,7 +224,7 @@ export async function getChannelList(): Promise<ChannelInfo[]> {
 
 export async function getChannel(channelId: number): Promise<ChannelInfo> {
   try {
-    return await requestApi(CHANNEL_API.DETAIL(channelId), 'get', null);
+    return await requestApi(CHANNEL_API.DETAIL, 'post', { channel_id: channelId });
   } catch (error) {
     console.error('Error fetching channel:', error);
     throw error;
@@ -208,7 +233,7 @@ export async function getChannel(channelId: number): Promise<ChannelInfo> {
 
 export async function updateChannel(channelId: number, channel: Partial<ChannelCreateRequest>): Promise<boolean> {
   try {
-    return await requestApi(CHANNEL_API.UPDATE(channelId), 'put', channel);
+    return await requestApi(CHANNEL_API.UPDATE, 'post', { channel_id: channelId, ...channel });
   } catch (error) {
     console.error('Error updating channel:', error);
     throw error;
@@ -217,7 +242,7 @@ export async function updateChannel(channelId: number, channel: Partial<ChannelC
 
 export async function restartDevice(channelId: number): Promise<{ device_name: string }> {
   try {
-    return await requestApi(CHANNEL_API.RESTART(channelId), 'post', null, 30000);
+    return await requestApi(CHANNEL_API.RESTART, 'post', { channel_id: channelId }, 30000);
   } catch (error) {
     console.error('Error restarting device:', error);
     throw error;
@@ -226,7 +251,7 @@ export async function restartDevice(channelId: number): Promise<{ device_name: s
 
 export async function reloadDeviceConfig(channelId: number): Promise<{ device_name: string }> {
   try {
-    return await requestApi(CHANNEL_API.RELOAD_CONFIG(channelId), 'post', null);
+    return await requestApi(CHANNEL_API.RELOAD_CONFIG, 'post', { channel_id: channelId });
   } catch (error) {
     console.error('Error reloading device config:', error);
     throw error;
@@ -244,7 +269,7 @@ export async function copyDevice(request: CopyDeviceRequest): Promise<CopyDevice
 
 export async function getIEC61850Structure(channelId: number): Promise<IEC61850Structure> {
   try {
-    return await requestApi(CHANNEL_API.IEC61850_STRUCTURE(channelId), 'get', null);
+    return await requestApi(CHANNEL_API.IEC61850_STRUCTURE, 'post', { channel_id: channelId });
   } catch (error) {
     console.error('Error fetching IEC61850 structure:', error);
     throw error;
@@ -258,7 +283,8 @@ export async function iec61850ReadPoints(
   intervalMs: number = 0,
 ): Promise<{ success: number; fail: number } | null> {
   try {
-    return await requestApi(CHANNEL_API.IEC61850_READ_POINTS(channelId), 'post', {
+    return await requestApi(CHANNEL_API.IEC61850_READ_POINTS, 'post', {
+      channel_id: channelId,
       category,
       item,
       interval_ms: intervalMs,
@@ -279,16 +305,15 @@ export async function getIEC61850TableData(
   pointTypes: number[] = [],
 ): Promise<Map<string, any>> {
   try {
-    const params = new URLSearchParams();
-    if (category) params.append('category', category);
-    if (item) params.append('item', item);
-    if (pointName) params.append('point_name', pointName);
-    params.append('page_index', pageIndex.toString());
-    params.append('page_size', pageSize.toString());
-    if (pointTypes.length > 0) {
-      params.append('point_types', pointTypes.join(','));
-    }
-    const data = await requestApi(`${CHANNEL_API.IEC61850_TABLE_DATA(channelId)}?${params.toString()}`, 'get', null);
+    const data = await requestApi(CHANNEL_API.IEC61850_TABLE_DATA, 'post', {
+      channel_id: channelId,
+      category,
+      item,
+      point_name: pointName,
+      page_index: pageIndex,
+      page_size: pageSize,
+      point_types: pointTypes.length > 0 ? pointTypes.join(',') : '',
+    });
     return new Map<string, any>(Object.entries(data));
   } catch (error) {
     console.error('Error fetching IEC61850 table data:', error);
@@ -302,10 +327,9 @@ export async function getIEC61850DoChildren(
   ln: string,
 ): Promise<IEC61850DoItem[]> {
   try {
-    const params = new URLSearchParams();
-    if (ld) params.append('ld', ld);
-    if (ln) params.append('ln', ln);
-    const data = await requestApi(`${CHANNEL_API.IEC61850_DO_CHILDREN(channelId)}?${params.toString()}`, 'get', null);
+    const data = await requestApi(CHANNEL_API.IEC61850_DO_CHILDREN, 'post', {
+      channel_id: channelId, ld, ln,
+    });
     return data?.items || [];
   } catch (error) {
     console.error('Error fetching IEC61850 DO children:', error);
@@ -320,11 +344,9 @@ export async function getIEC61850DaChildren(
   doName: string,
 ): Promise<IEC61850DaItem[]> {
   try {
-    const params = new URLSearchParams();
-    if (ld) params.append('ld', ld);
-    if (ln) params.append('ln', ln);
-    if (doName) params.append('do_name', doName);
-    const data = await requestApi(`${CHANNEL_API.IEC61850_DA_CHILDREN(channelId)}?${params.toString()}`, 'get', null);
+    const data = await requestApi(CHANNEL_API.IEC61850_DA_CHILDREN, 'post', {
+      channel_id: channelId, ld, ln, do_name: doName,
+    });
     return data?.items || [];
   } catch (error) {
     console.error('Error fetching IEC61850 DA children:', error);
@@ -342,16 +364,15 @@ export async function getIEC61850TreeData(
   pageSize: number = 10,
 ): Promise<IEC61850TreeDataResponse | null> {
   try {
-    const params = new URLSearchParams();
-    if (category) params.append('category', category);
-    if (item) params.append('item', item);
-    if (pointName) params.append('point_name', pointName);
-    if (pointTypes.length > 0) {
-      params.append('point_types', pointTypes.join(','));
-    }
-    params.append('page_index', pageIndex.toString());
-    params.append('page_size', pageSize.toString());
-    const data = await requestApi(`${CHANNEL_API.IEC61850_TREE_DATA(channelId)}?${params.toString()}`, 'get', null);
+    const data = await requestApi(CHANNEL_API.IEC61850_TREE_DATA, 'post', {
+      channel_id: channelId,
+      category,
+      item,
+      point_name: pointName,
+      point_types: pointTypes.length > 0 ? pointTypes.join(',') : '',
+      page_index: pageIndex,
+      page_size: pageSize,
+    });
     return data;
   } catch (error) {
     console.error('Error fetching IEC61850 tree data:', error);
@@ -364,7 +385,8 @@ export async function iec61850ReadPoint(
   pointCode: string,
 ): Promise<{ value: number | null; point_code: string } | null> {
   try {
-    return await requestApi(CHANNEL_API.IEC61850_READ_POINT(channelId), 'post', {
+    return await requestApi(CHANNEL_API.IEC61850_READ_POINT, 'post', {
+      channel_id: channelId,
       point_code: pointCode,
     });
   } catch (error) {
@@ -379,7 +401,8 @@ export async function iec61850WritePoint(
   pointValue: number | string,
 ): Promise<{ point_code: string; value: number | string } | null> {
   try {
-    return await requestApi(CHANNEL_API.IEC61850_WRITE_POINT(channelId), 'post', {
+    return await requestApi(CHANNEL_API.IEC61850_WRITE_POINT, 'post', {
+      channel_id: channelId,
       point_code: pointCode,
       point_value: pointValue,
     });

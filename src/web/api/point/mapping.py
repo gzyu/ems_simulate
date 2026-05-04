@@ -57,7 +57,7 @@ async def create_mapping(request: PointMappingCreateRequest):
     return BaseResponse(message="创建映射成功", data=result)
 
 
-@point_mapping_router.get("/list", response_model=BaseResponse)
+@point_mapping_router.post("/list", response_model=BaseResponse)
 async def get_all_mappings():
     """获取映射列表"""
     data = PointMappingService.get_all_mappings()

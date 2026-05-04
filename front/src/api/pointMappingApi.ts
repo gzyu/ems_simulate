@@ -32,7 +32,7 @@ export interface PointMappingUpdate {
 
 export async function getMappings(): Promise<PointMapping[]> {
   try {
-    return await requestApi(POINT_MAPPING_API.LIST, 'get', null);
+    return await requestApi(POINT_MAPPING_API.LIST, 'post', null);
   } catch (error) {
     console.error('Error fetching mappings:', error);
     throw error;

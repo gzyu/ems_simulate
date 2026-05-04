@@ -34,15 +34,19 @@ class IEC61850ServerHandler(ServerHandler):
         self._config = config
         ip = config.get("ip", "0.0.0.0")
         port = config.get("port", 102)
-        model_name = config.get("model_name", "EMS")
-        ied_name = config.get("ied_name", "EMSDevice")
+        model_name = config.get("model_name", None)
+        ied_name = config.get("ied_name", None)
         ld_name = config.get("ld_name", "GenericLD")
+
+        # model_name 由 Device._build_protocol_config() 从通道配置传入，
+        # 对应 ICD 文件的 IED 名称 (如 "PCS001G")，传给 ied_name 参数
+        effective_ied = ied_name or model_name or "EMS"
 
         self._server = IEC61850Server(
             ip=ip,
             port=port,
-            model_name=model_name,
-            ied_name=ied_name,
+            model_name=effective_ied,
+            ied_name=effective_ied,
             ld_name=ld_name,
         )
 

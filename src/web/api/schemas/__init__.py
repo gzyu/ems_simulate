@@ -1,6 +1,7 @@
 from .base import BaseResponse
 from .channel import (
     ChannelCreateRequest, ChannelUpdateRequest,
+    ChannelDeleteRequest, ChannelDetailRequest, ChannelIdRequest,
     CreateAndStartDeviceRequest, CopyDeviceRequest,
 )
 from .device import (
@@ -9,10 +10,12 @@ from .device import (
     DeviceStartRequest, DeviceStopRequest, DeviceResetRequest,
     CurrentTableRequest, ManualReadRequest,
     MessageListRequest, SlaveAddRequest, SlaveDeleteRequest, SlaveEditRequest,
+    DeviceGroupStatusRequest,
 )
 from .device_group import (
     DeviceGroupCreateRequest, DeviceGroupUpdateRequest,
-    DeviceGroupDeleteRequest, DeviceToGroupRequest,
+    DeviceGroupDeleteRequest, DeviceGroupIdRequest,
+    DeviceToGroupRequest, RemoveDeviceRequest,
     DevicesToGroupRequest, BatchDeviceOperationRequest,
 )
 from .point import (
@@ -25,18 +28,33 @@ from .point import (
 )
 from .point_mapping import SourcePointItem
 from .tree import TreeResponse
+from .goose import (
+    GoosePublisherCreate, GoosePublisherUpdate,
+    GoosePublisherIdRequest,
+    GooseDataSetEntryCreate, GooseDataSetEntryUpdate,
+    GoosePublisherEntryAdd, GoosePublisherEntryUpdate, GoosePublisherEntryRemove,
+    GooseSubscriptionCreate, GooseSubscriptionRemove,
+    GooseReceiverCreate, GooseReceiverIdRequest,
+    GoosePublishNow,
+    GoosePublisherStatus, GooseSubscriptionStatus, GooseReceiverStatus,
+    GooseCaptureStartRequest, GooseCaptureStopRequest,
+    GooseCaptureListRequest, GooseCaptureStatusResponse,
+)
 
 __all__ = [
     "BaseResponse",
     "ChannelCreateRequest", "ChannelUpdateRequest",
+    "ChannelDeleteRequest", "ChannelDetailRequest", "ChannelIdRequest",
     "CreateAndStartDeviceRequest", "CopyDeviceRequest",
     "DeviceInfoRequest", "DeviceTableRequest",
     "SimulationStartRequest", "SimulationStopRequest",
     "DeviceStartRequest", "DeviceStopRequest", "DeviceResetRequest",
     "CurrentTableRequest", "ManualReadRequest",
     "MessageListRequest", "SlaveAddRequest", "SlaveDeleteRequest", "SlaveEditRequest",
+    "DeviceGroupStatusRequest",
     "DeviceGroupCreateRequest", "DeviceGroupUpdateRequest",
-    "DeviceGroupDeleteRequest", "DeviceToGroupRequest",
+    "DeviceGroupDeleteRequest", "DeviceGroupIdRequest",
+    "DeviceToGroupRequest", "RemoveDeviceRequest",
     "DevicesToGroupRequest", "BatchDeviceOperationRequest",
     "PointEditDataRequest", "PointLimitEditRequest", "PointMetadataEditRequest",
     "Iec104MetadataEditRequest",
@@ -46,4 +64,14 @@ __all__ = [
     "PointChangeHistoryRequest", "ChangeTrackingConfigRequest",
     "SourcePointItem",
     "TreeResponse",
+    "GoosePublisherCreate", "GoosePublisherUpdate",
+    "GoosePublisherIdRequest",
+    "GooseDataSetEntryCreate", "GooseDataSetEntryUpdate",
+    "GoosePublisherEntryAdd", "GoosePublisherEntryUpdate", "GoosePublisherEntryRemove",
+    "GooseSubscriptionCreate", "GooseSubscriptionRemove",
+    "GooseReceiverCreate", "GooseReceiverIdRequest",
+    "GoosePublishNow",
+    "GoosePublisherStatus", "GooseSubscriptionStatus", "GooseReceiverStatus",
+    "GooseCaptureStartRequest", "GooseCaptureStopRequest",
+    "GooseCaptureListRequest", "GooseCaptureStatusResponse",
 ]

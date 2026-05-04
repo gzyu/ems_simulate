@@ -31,6 +31,8 @@ declare module 'vue' {
     ElCheckbox: typeof import('element-plus/es')['ElCheckbox']
     ElCol: typeof import('element-plus/es')['ElCol']
     ElContainer: typeof import('element-plus/es')['ElContainer']
+    ElDescriptions: typeof import('element-plus/es')['ElDescriptions']
+    ElDescriptionsItem: typeof import('element-plus/es')['ElDescriptionsItem']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     ElDivider: typeof import('element-plus/es')['ElDivider']
     ElDropdown: typeof import('element-plus/es')['ElDropdown']
@@ -65,6 +67,8 @@ declare module 'vue' {
     ElTreeSelect: typeof import('element-plus/es')['ElTreeSelect']
     ElUpload: typeof import('element-plus/es')['ElUpload']
     FloatRegister: typeof import('./src/components/register/FloatRegister.vue')['default']
+    GooseCapture: typeof import('./src/components/goose/GooseCapture.vue')['default']
+    GooseManager: typeof import('./src/components/goose/GooseManager.vue')['default']
     Iec61850WriteDialog: typeof import('./src/components/device/Iec61850WriteDialog.vue')['default']
     LongRegister: typeof import('./src/components/register/LongRegister.vue')['default']
     MessageViewDialog: typeof import('./src/components/device/MessageViewDialog.vue')['default']
@@ -83,5 +87,8 @@ declare module 'vue' {
     TagsView: typeof import('./src/components/layout/TagsView.vue')['default']
     TextNode: typeof import('./src/components/common/TextNode.vue')['default']
     WritePointDialog: typeof import('./src/components/device/WritePointDialog.vue')['default']
+  }
+  export interface GlobalDirectives {
+    vLoading: typeof import('element-plus/es')['ElLoadingDirective']
   }
 }

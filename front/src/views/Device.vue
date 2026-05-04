@@ -105,6 +105,7 @@ import {
   getIEC61850ConnectProgress,
 } from "@/api/deviceApi";
 import type { IEC61850ConnectProgress } from "@/api/deviceApi";
+import { triggerSidebarRefresh } from "@/composables";
 import { CaretRight, VideoPause, Document } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 
@@ -200,6 +201,7 @@ const startIec61850ProgressPolling = () => {
           deviceStatusStr.value = '运行中';
           ElMessage.success('IEC 61850 设备连接成功');
           slaveRef.value?.reloadDatas();
+          triggerSidebarRefresh(routeName.value);
         } else {
           ElMessage.error('IEC 61850 设备连接失败');
         }
@@ -345,6 +347,7 @@ const fetchDeviceStatus = async () => {
       if (communicationType.value && String(communicationType.value) === "Iec61850Client") {
         slaveRef.value?.reloadDatas();
         stopIec61850ProgressPolling();
+        triggerSidebarRefresh(routeName.value);
       }
     }
     // 注意：不在 serverStatus === false 时停止进度轮询

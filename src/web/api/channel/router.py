@@ -3,7 +3,10 @@
 from fastapi import APIRouter, Request
 
 from src.data.service.channel_service import ChannelService
-from src.web.api.schemas import BaseResponse, ChannelCreateRequest, ChannelUpdateRequest
+from src.web.api.schemas import (
+    BaseResponse, ChannelCreateRequest, ChannelUpdateRequest,
+    ChannelDeleteRequest, ChannelDetailRequest,
+)
 from src.web.api.channel.helpers import (
     get_device_builder, configure_builder_network, is_client_protocol,
     reload_device_instance,
@@ -33,7 +36,7 @@ CONN_TYPE_OPTIONS = [
 ]
 
 
-@router.get("/protocols", response_model=BaseResponse)
+@router.post("/protocols", response_model=BaseResponse)
 async def get_protocols():
     """获取支持的协议列表"""
     try:
@@ -46,7 +49,7 @@ async def get_protocols():
         return BaseResponse(code=500, message=f"获取协议列表失败: {e}", data={})
 
 
-@router.get("/serial-ports", response_model=BaseResponse)
+@router.post("/serial-ports", response_model=BaseResponse)
 async def get_serial_ports():
     """获取可用的串口列表"""
     try:
@@ -89,6 +92,7 @@ async def create_channel(req: ChannelCreateRequest, request: Request):
             baud_rate=req.baud_rate, data_bits=req.data_bits,
             stop_bits=req.stop_bits, parity=req.parity,
             rtu_addr=req.rtu_addr if req.protocol_type == 3 else "1",
+            model_name=req.model_name if req.protocol_type == 4 else None,
         )
 
         if channel_id > 0:
@@ -111,6 +115,11 @@ async def create_channel(req: ChannelCreateRequest, request: Request):
                         builder.setDeviceNetConfig(port=req.port, ip=req.ip)
                     else:
                         builder.setDeviceNetConfig(port=req.port, ip=Config.DEFAULT_IP)
+
+                # 传递 IEC61850 IED 模型名称
+                if protocol_enum in (ProtocolType.Iec61850Server, ProtocolType.Iec61850Client):
+                    if req.model_name:
+                        builder.setDeviceModelName(req.model_name)
 
                 new_device = builder.makeGeneralDevice(
                     device_id=channel_id, device_name=req.name,
@@ -135,13 +144,13 @@ async def create_channel(req: ChannelCreateRequest, request: Request):
         return BaseResponse(code=500, message=f"创建通道失败: {e}")
 
 
-@router.delete("/{channel_id}", response_model=BaseResponse)
-async def delete_channel(channel_id: int, request: Request):
+@router.post("/delete", response_model=BaseResponse)
+async def delete_channel(req: ChannelDeleteRequest, request: Request):
     """删除通道"""
     try:
         device_controller = request.app.state.device_controller
-        await device_controller.remove_device_by_id(channel_id)
-        success = ChannelService.delete_channel(channel_id)
+        await device_controller.remove_device_by_id(req.channel_id)
+        success = ChannelService.delete_channel(req.channel_id)
         if success:
             return BaseResponse(message="删除通道成功", data=True)
         else:
@@ -151,7 +160,7 @@ async def delete_channel(channel_id: int, request: Request):
         return BaseResponse(code=500, message=f"删除通道失败: {e}", data=False)
 
 
-@router.get("/list", response_model=BaseResponse)
+@router.post("/list", response_model=BaseResponse)
 async def get_channel_list():
     """获取所有通道列表"""
     try:
@@ -162,11 +171,11 @@ async def get_channel_list():
         return BaseResponse(code=500, message=f"获取通道列表失败: {e}", data=[])
 
 
-@router.get("/{channel_id}", response_model=BaseResponse)
-async def get_channel_by_id(channel_id: int):
+@router.post("/detail", response_model=BaseResponse)
+async def get_channel_by_id(req: ChannelDetailRequest):
     """获取单个通道详情"""
     try:
-        channel = ChannelService.get_channel_by_id(channel_id)
+        channel = ChannelService.get_channel_by_id(req.channel_id)
         if channel:
             return BaseResponse(message="获取通道详情成功", data=channel)
         else:
@@ -176,10 +185,11 @@ async def get_channel_by_id(channel_id: int):
         return BaseResponse(code=500, message=f"获取通道详情失败: {e}")
 
 
-@router.put("/{channel_id}", response_model=BaseResponse)
-async def update_channel(channel_id: int, req: ChannelUpdateRequest, request: Request):
+@router.post("/update", response_model=BaseResponse)
+async def update_channel(req: ChannelUpdateRequest, request: Request):
     """更新通道配置"""
     try:
+        channel_id = req.channel_id
         existing = ChannelService.get_channel_by_id(channel_id)
         if not existing:
             return BaseResponse(code=404, message="通道不存在")
@@ -193,6 +203,7 @@ async def update_channel(channel_id: int, req: ChannelUpdateRequest, request: Re
             baud_rate=req.baud_rate, data_bits=req.data_bits,
             stop_bits=req.stop_bits, parity=req.parity,
             rtu_addr=req.rtu_addr if protocol_to_use == 3 else "1",
+            model_name=req.model_name if protocol_to_use == 4 else None,
         )
 
         if success:

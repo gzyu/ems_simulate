@@ -103,6 +103,7 @@ import {
   type DeviceInfo
 } from "@/api/deviceGroupApi";
 import { useIec61850Tree, type TreeNode } from "@/composables";
+import { useSidebarRefresh } from "@/composables";
 
 const router = useRouter();
 const treeRef = ref<InstanceType<typeof ElTree>>();
@@ -132,6 +133,9 @@ const ungroupedExpanded = ref(true);
 
 // IEC61850 设备树 composable
 const { iec61850UngroupedMap, fetchIEC61850Structure, markIEC61850Devices, markUngroupedIEC61850Devices } = useIec61850Tree();
+
+// 侧边栏刷新触发器
+const { refreshCounter } = useSidebarRefresh();
 
 const treeProps = { children: 'children', label: 'label' };
 
@@ -254,6 +258,11 @@ const fetchDeviceGroupTree = async () => {
 
 // 交互处理
 const handleNodeClick = (data: TreeNode) => {
+  // 如果有 linkTo，直接导航 (如 GOOSE 节点导航到 /goose)
+  if (data.linkTo) {
+    router.push(data.linkTo);
+    return;
+  }
   if (data.isIec61850Child) {
     // IEC61850 子节点点击: 携带 category/item 导航到设备页面
     // data.type 是分类 (如 "Data Model")，data.value 是完整过滤路径 (如 "GenericLD/MMXU1")
@@ -271,6 +280,11 @@ const handleDeviceClick = (device: DeviceInfo) => navigateToDevice(device.name);
 
 // 处理未分组区域的 IEC61850 子节点点击
 const handleUngroupedNodeClick = (data: any) => {
+  // 如果有 linkTo，直接导航
+  if (data.linkTo) {
+    router.push(data.linkTo);
+    return;
+  }
   if (data.isIec61850Child) {
     // 找到该子节点所属的设备名
     const deviceName = data.deviceName || currentDeviceName.value;
@@ -501,6 +515,11 @@ watch(() => router.currentRoute.value.params.deviceName, (name) => {
     currentNodeKey.value = `device-${nameStr}`;
   }
 }, { immediate: true });
+
+// 监听侧边栏刷新触发（如 IEC61850 客户端连接成功）
+watch(refreshCounter, () => {
+  fetchDeviceGroupTree();
+});
 </script>
 
 <style lang="scss" scoped>

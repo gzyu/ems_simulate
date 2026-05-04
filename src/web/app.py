@@ -49,8 +49,25 @@ app = create_app()
 
 @app.on_event("startup")
 async def startup_event():
-    """FastAPI启动事件，初始化设备控制器"""
+    """FastAPI启动事件，初始化设备控制器和GOOSE管理器"""
     app.state.device_controller = await get_device_controller()
+
+    # 初始化 GOOSE 管理器
+    try:
+        from src.proto.iec61850.goose_manager import get_goose_manager
+        app.state.goose_manager = get_goose_manager()
+        log.info("GOOSE 管理器初始化成功")
+
+        # 从数据库加载已持久化的 GOOSE Publisher 配置
+        try:
+            loaded_count = app.state.goose_manager.load_from_db()
+            log.info(f"从数据库加载 {loaded_count} 个已持久化的 GOOSE Publisher")
+        except Exception as load_err:
+            log.warning(f"从数据库加载 GOOSE Publisher 失败: {load_err}")
+    except Exception as e:
+        log.warning(f"GOOSE 管理器初始化失败 (GOOSE 功能不可用): {e}")
+        app.state.goose_manager = None
+
     return app.state.device_controller
 
 

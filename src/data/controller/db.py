@@ -11,6 +11,9 @@ from src.config.config import Config
 from src.data.controller.db_controller import DbController
 from src.data.model.base import Base
 
+# 导入所有模型，确保它们在 Base.metadata 中注册
+import src.data.model  # noqa: F401
+
 
 # 加载配置
 config_path = os.path.join(ROOT_DIR, "etc", "config.ini")

@@ -8,7 +8,7 @@ from src.data.service.point_tree_service import PointTreeService
 point_tree_router = APIRouter(prefix="/api/point-tree", tags=["测点树"])
 
 
-@point_tree_router.get("/tree", response_model=BaseResponse)
+@point_tree_router.post("/tree", response_model=BaseResponse)
 async def get_point_tree():
     """获取系统测点树结构"""
     tree_data = await PointTreeService.get_tree()

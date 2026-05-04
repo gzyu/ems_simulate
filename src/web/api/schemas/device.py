@@ -61,6 +61,12 @@ class CurrentTableRequest(BaseModel):
     point_name: Optional[str] = ""
 
 
+class DeviceGroupStatusRequest(BaseModel):
+    """设备组状态更新请求"""
+    group_id: int = Field(..., description="设备组ID")
+    status: int = Field(..., description="设备组状态")
+
+
 class ManualReadRequest(BaseModel):
     device_name: str
     interval: Optional[int] = 0

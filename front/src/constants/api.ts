@@ -1,6 +1,7 @@
 /**
  * API 路径常量
  * 集中管理所有后端 API 路径，避免在各处硬编码
+ * 所有接口均使用 POST 方法
  */
 
 // ===== 通道相关 =====
@@ -8,24 +9,25 @@ export const CHANNEL_API = {
   PROTOCOLS: '/api/channels/protocols',
   SERIAL_PORTS: '/api/channels/serial-ports',
   CREATE: '/api/channels/create',
+  DELETE: '/api/channels/delete',
+  LIST: '/api/channels/list',
+  DETAIL: '/api/channels/detail',
+  UPDATE: '/api/channels/update',
   IMPORT_POINTS: '/api/channels/import-points',
   IMPORT_ICD: '/api/channels/import-icd',
+  PREVIEW_ICD: '/api/channels/preview-icd',
   CREATE_AND_START: '/api/channels/create-and-start',
-  DELETE: (id: number) => `/api/channels/${id}`,
-  LIST: '/api/channels/list',
-  DETAIL: (id: number) => `/api/channels/${id}`,
-  UPDATE: (id: number) => `/api/channels/${id}`,
-  RESTART: (id: number) => `/api/channels/restart/${id}`,
-  RELOAD_CONFIG: (id: number) => `/api/channels/reload-config/${id}`,
+  RESTART: '/api/channels/restart',
+  RELOAD_CONFIG: '/api/channels/reload-config',
   COPY: '/api/channels/copy',
-  IEC61850_STRUCTURE: (id: number) => `/api/channels/iec61850-structure/${id}`,
-  IEC61850_READ_POINTS: (id: number) => `/api/channels/iec61850-read-points/${id}`,
-  IEC61850_TABLE_DATA: (id: number) => `/api/channels/iec61850-table-data/${id}`,
-  IEC61850_DO_CHILDREN: (id: number) => `/api/channels/iec61850-do-children/${id}`,
-  IEC61850_DA_CHILDREN: (id: number) => `/api/channels/iec61850-da-children/${id}`,
-  IEC61850_TREE_DATA: (id: number) => `/api/channels/iec61850-tree-data/${id}`,
-  IEC61850_READ_POINT: (id: number) => `/api/channels/iec61850-read-point/${id}`,
-  IEC61850_WRITE_POINT: (id: number) => `/api/channels/iec61850-write-point/${id}`,
+  IEC61850_STRUCTURE: '/api/channels/iec61850-structure',
+  IEC61850_READ_POINTS: '/api/channels/iec61850-read-points',
+  IEC61850_TABLE_DATA: '/api/channels/iec61850-table-data',
+  IEC61850_DO_CHILDREN: '/api/channels/iec61850-do-children',
+  IEC61850_DA_CHILDREN: '/api/channels/iec61850-da-children',
+  IEC61850_TREE_DATA: '/api/channels/iec61850-tree-data',
+  IEC61850_READ_POINT: '/api/channels/iec61850-read-point',
+  IEC61850_WRITE_POINT: '/api/channels/iec61850-write-point',
 } as const;
 
 // ===== 设备相关 =====
@@ -38,6 +40,7 @@ export const DEVICE_API = {
   STOP: '/api/devices/stop',
   SLAVE_ID_LIST: '/api/devices/slave-id-list',
   TABLE: '/api/devices/table',
+  CURRENT_TABLE: '/api/devices/current-table',
   AUTO_READ_STATUS: '/api/devices/auto-read-status',
   START_AUTO_READ: '/api/devices/start-auto-read',
   STOP_AUTO_READ: '/api/devices/stop-auto-read',
@@ -54,20 +57,20 @@ export const DEVICE_API = {
 // ===== 设备组相关 =====
 export const DEVICE_GROUP_API = {
   TREE: '/api/device-groups/tree',
-  LIST: '/api/device-groups/',
+  LIST: '/api/device-groups/list',
   ROOT: '/api/device-groups/root',
   UNGROUPED: '/api/device-groups/ungrouped',
-  DETAIL: (id: number) => `/api/device-groups/${id}`,
-  DEVICES_IN_GROUP: (id: number) => `/api/device-groups/${id}/devices`,
-  CHILDREN: (id: number) => `/api/device-groups/${id}/children`,
-  CREATE: '/api/device-groups/',
-  UPDATE: (id: number) => `/api/device-groups/${id}`,
-  DELETE: (id: number) => `/api/device-groups/${id}`,
-  UPDATE_STATUS: (id: number) => `/api/device-groups/${id}/status`,
+  DETAIL: '/api/device-groups/detail',
+  DEVICES_IN_GROUP: '/api/device-groups/devices',
+  CHILDREN: '/api/device-groups/children',
+  CREATE: '/api/device-groups/create',
+  UPDATE: '/api/device-groups/update',
+  DELETE: '/api/device-groups/delete',
+  UPDATE_STATUS: '/api/device-groups/update-status',
   ADD_DEVICE: '/api/device-groups/add-device',
-  REMOVE_DEVICE: (deviceId: number) => `/api/device-groups/remove-device/${deviceId}`,
+  REMOVE_DEVICE: '/api/device-groups/remove-device',
   MOVE_DEVICES: '/api/device-groups/move-devices',
-  BATCH_OPERATION: (groupId: number) => `/api/device-groups/${groupId}/batch-operation`,
+  BATCH_OPERATION: '/api/device-groups/batch-operation',
 } as const;
 
 // ===== 测点相关 =====
@@ -105,4 +108,36 @@ export const POINT_MAPPING_API = {
 export const POINT_TREE_API = {
   BASE: '/api/point-tree',
   TREE: '/api/point-tree/tree',
+} as const;
+
+// ===== GOOSE 相关 =====
+export const GOOSE_API = {
+  // Publisher
+  PUBLISHERS: '/api/channels/goose/publishers',
+  PUBLISHERS_LIST: '/api/channels/goose/publishers/list',
+  PUBLISHER_DETAIL: '/api/channels/goose/publishers/detail',
+  PUBLISHER_UPDATE: '/api/channels/goose/publishers/update',
+  PUBLISHER_DELETE: '/api/channels/goose/publishers/delete',
+  PUBLISHER_START: '/api/channels/goose/publishers/start',
+  PUBLISHER_STOP: '/api/channels/goose/publishers/stop',
+  PUBLISHER_PUBLISH: '/api/channels/goose/publishers/publish',
+  PUBLISHER_ENTRIES_ADD: '/api/channels/goose/publishers/entries/add',
+  PUBLISHER_ENTRIES_UPDATE: '/api/channels/goose/publishers/entries/update',
+  PUBLISHER_ENTRIES_REMOVE: '/api/channels/goose/publishers/entries/remove',
+  // Receiver
+  RECEIVERS: '/api/channels/goose/receivers',
+  RECEIVERS_LIST: '/api/channels/goose/receivers/list',
+  RECEIVER_DETAIL: '/api/channels/goose/receivers/detail',
+  RECEIVER_DELETE: '/api/channels/goose/receivers/delete',
+  RECEIVER_START: '/api/channels/goose/receivers/start',
+  RECEIVER_STOP: '/api/channels/goose/receivers/stop',
+  RECEIVER_SUBSCRIPTIONS_ADD: '/api/channels/goose/receivers/subscriptions/add',
+  RECEIVER_SUBSCRIPTIONS_REMOVE: '/api/channels/goose/receivers/subscriptions/remove',
+  // ICD 统一导入使用 /import-icd (channelApi.ts)，含 MMS 测点 + GOOSE 配置
+  // GOOSE 报文抓包
+  CAPTURE_START: '/api/channels/goose/capture/start',
+  CAPTURE_STOP: '/api/channels/goose/capture/stop',
+  CAPTURE_LIST: '/api/channels/goose/capture/list',
+  CAPTURE_CLEAR: '/api/channels/goose/capture/clear',
+  CAPTURE_STATUS: '/api/channels/goose/capture/status',
 } as const;

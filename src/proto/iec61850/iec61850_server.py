@@ -133,14 +133,39 @@ class IEC61850Server:
         # 地址 -> iec_type 的映射
         self._point_iec_type: Dict[str, str] = {}
 
+        # 标准子 DA (q.validity, q.source, t.seconds 等) 引用列表，
+        # 用于服务器启动后初始化默认值，避免 IED Scout 因值为空显示红色感叹号
+        # 每个元素: (da_object, bda_name, iec_type_str)
+        # iec_type_str: "int32", "boolean", "uint32"
+        self._standard_bda_list: List[tuple] = []
+
         # 保持底层 C 对象的 Python 引用，防止被垃圾回收导致崩溃
         self._keep_alive: List[Any] = []
 
         self._build_base_model()
 
     def _build_base_model(self):
-        """构建基础 IED 模型（只含 LLN0）"""
-        self._model = iec61850.IedModel_create(self.model_name)
+        """构建基础 IED 模型（只含 IedModel，LD/LN 在添加测点时懒创建）
+
+        使用 ied_name 作为 IED 模型名称 (与 ICD 文件的 iedName 保持一致)。
+        model_name 同时作为 MMS 引用路径前缀，应与 ied_name 一致。
+
+        注意：不再预创建默认 LD (GenericLD) 和逻辑节点 (MMXU1/GGIO1/GGIO2)，
+        避免 ICD 导入模式下服务器模型出现多余的 Logical Device，
+        导致 IEDScout 等客户端加载 CID 文件连接时报 LIB0406 结构不匹配错误。
+        """
+        ied_model_name = self.ied_name if self.ied_name else self.model_name
+        self._model = iec61850.IedModel_create(ied_model_name)
+        # 同步 model_name 确保 MMS 引用路径前缀与 IED 名称一致
+        self.model_name = ied_model_name
+
+    def _ensure_base_ld(self):
+        """懒创建默认 LD (simple address mode) 及其逻辑节点
+
+        仅在添加简单地址测点时调用，避免 ICD 导入模式下产生多余的 GenericLD。
+        """
+        if self._ld is not None:
+            return
         self._ld = iec61850.LogicalDevice_create(self.ld_name, self._model)
         self._lln0 = iec61850.LogicalNode_create("LLN0", self._ld)
 
@@ -203,6 +228,8 @@ class IEC61850Server:
 
     def _add_point_simple(self, address, frame_type: int) -> Optional[str]:
         """简单地址模式: 使用固定的 MMXU1/GGIO1/GGIO2 结构添加测点"""
+        # 确保默认 LD 已创建（懒初始化）
+        self._ensure_base_ld()
         addr_str = str(address)
 
         # 确保 address 是合法的 IEC 61850 节点名称 (不能包含 . / \ 等)
@@ -211,8 +238,19 @@ class IEC61850Server:
         ref = None
         if frame_type == 0:  # 遥测 - MV (Measured Value)
             do_name = f"MV_{safe_addr}"
-            do = iec61850.DataObject_create(do_name, iec61850.toModelNode(self._mmxu), 0)
-            mag = iec61850.DataObject_create("mag", iec61850.toModelNode(do), 0)
+            do_key = f"{self.ld_name}/MMXU1.{do_name}"
+            do = self._do_map.get(do_key)
+            if do is None:
+                do = iec61850.DataObject_create(do_name, iec61850.toModelNode(self._mmxu), 0)
+                self._do_map[do_key] = do
+                self._keep_alive.append(do)
+                self._add_standard_das(do, do_key, "MX", 0, ["mag", "f"])
+            mag_key = f"{do_key}.mag"
+            mag = self._do_map.get(mag_key)
+            if mag is None:
+                mag = iec61850.DataObject_create("mag", iec61850.toModelNode(do), 0)
+                self._do_map[mag_key] = mag
+                self._keep_alive.append(mag)
             da = iec61850.DataAttribute_create(
                 "f", iec61850.toModelNode(mag),
                 iec61850.IEC61850_FLOAT32,
@@ -222,11 +260,17 @@ class IEC61850Server:
             self._point_attrs[addr_str] = da
             self._point_fc[addr_str] = "MX"
             self._point_iec_type[addr_str] = "float"
-            self._keep_alive.extend([do_name, do, mag, da])
+            self._keep_alive.extend([do_name, da])
 
         elif frame_type == 1:  # 遥信 - SPS (Single Point Status)
             do_name = f"SPS_{safe_addr}"
-            do = iec61850.DataObject_create(do_name, iec61850.toModelNode(self._ggio1), 0)
+            do_key = f"{self.ld_name}/GGIO1.{do_name}"
+            do = self._do_map.get(do_key)
+            if do is None:
+                do = iec61850.DataObject_create(do_name, iec61850.toModelNode(self._ggio1), 0)
+                self._do_map[do_key] = do
+                self._keep_alive.append(do)
+                self._add_standard_das(do, do_key, "ST", 1, ["stVal"])
             da = iec61850.DataAttribute_create(
                 "stVal", iec61850.toModelNode(do),
                 iec61850.IEC61850_BOOLEAN,
@@ -236,11 +280,16 @@ class IEC61850Server:
             self._point_attrs[addr_str] = da
             self._point_fc[addr_str] = "ST"
             self._point_iec_type[addr_str] = "boolean"
-            self._keep_alive.extend([do_name, do, da])
+            self._keep_alive.extend([do_name, da])
 
         elif frame_type == 2:  # 遥控 - SPC (Single Point Control)
             do_name = f"SPC_{safe_addr}"
-            do = iec61850.DataObject_create(do_name, iec61850.toModelNode(self._ggio1), 0)
+            do_key = f"{self.ld_name}/GGIO1.{do_name}"
+            do = self._do_map.get(do_key)
+            if do is None:
+                do = iec61850.DataObject_create(do_name, iec61850.toModelNode(self._ggio1), 0)
+                self._do_map[do_key] = do
+                self._keep_alive.append(do)
             da = iec61850.DataAttribute_create(
                 "ctlVal", iec61850.toModelNode(do),
                 iec61850.IEC61850_BOOLEAN,
@@ -250,11 +299,16 @@ class IEC61850Server:
             self._point_attrs[addr_str] = da
             self._point_fc[addr_str] = "CO"
             self._point_iec_type[addr_str] = "boolean"
-            self._keep_alive.extend([do_name, do, da])
+            self._keep_alive.extend([do_name, da])
 
         elif frame_type == 3:  # 遥调 - APC (Analog Point Control)
             do_name = f"APC_{safe_addr}"
-            do = iec61850.DataObject_create(do_name, iec61850.toModelNode(self._ggio2), 0)
+            do_key = f"{self.ld_name}/GGIO2.{do_name}"
+            do = self._do_map.get(do_key)
+            if do is None:
+                do = iec61850.DataObject_create(do_name, iec61850.toModelNode(self._ggio2), 0)
+                self._do_map[do_key] = do
+                self._keep_alive.append(do)
             da = iec61850.DataAttribute_create(
                 "ctlVal", iec61850.toModelNode(do),
                 iec61850.IEC61850_FLOAT32,
@@ -264,7 +318,7 @@ class IEC61850Server:
             self._point_attrs[addr_str] = da
             self._point_fc[addr_str] = "CO"
             self._point_iec_type[addr_str] = "float"
-            self._keep_alive.extend([do_name, do, da])
+            self._keep_alive.extend([do_name, da])
 
         if ref:
             self._point_refs[addr_str] = ref
@@ -298,6 +352,9 @@ class IEC61850Server:
         # 获取或创建逻辑节点
         ln = self._get_or_create_ln(ld_inst, ln_name)
 
+        # 预拆分 da_path 以便在 DO 创建时用于 FC 推断
+        da_parts = da_path.split('.') if da_path else []
+
         # === 1. 获取或创建 DO (去重) ===
         do_key = f"{ld_inst}/{ln_name}.{do_name}"
         do_obj = self._do_map.get(do_key)
@@ -305,10 +362,12 @@ class IEC61850Server:
             do_obj = iec61850.DataObject_create(do_name, iec61850.toModelNode(ln), 0)
             self._do_map[do_key] = do_obj
             self._keep_alive.append(do_obj)
+            # 为新 DO 自动补充标准 DAs (q, t, dU)，确保 MMS 模型完整
+            # 避免 .NET 客户端因缺少预期 DA 而 IndexOutOfRange
+            self._add_standard_das(do_obj, do_key, fc, frame_type, da_parts)
 
         # === 2. 根据 da_path 创建 DA 层级结构 (去重) ===
         # da_path 示例: "mag.f", "stVal", "q.validity", "Oper.ctlVal", "cVal.mag.f"
-        da_parts = da_path.split('.')
 
         # 推断 FC: 优先用传入值, 否则从 DA 路径推断
         if not fc:
@@ -435,11 +494,9 @@ class IEC61850Server:
         # 整数/枚举: stVal (ENS/ENC), validity, source, orCat
         if leaf in ("stVal",) and frame_type == 1:
             return iec61850.IEC61850_INT32
-        if leaf in ("validity", "source", "orCat", "ctlNum"):
+        if leaf in ("validity", "source", "orCat", "ctlNum", "TimeAccuracy"):
             return iec61850.IEC61850_INT32
-
-        # 时间戳: seconds
-        if leaf == "seconds":
+        if leaf in ("seconds", "detailQuality"):
             return iec61850.IEC61850_INT32
         if leaf == "fraction":
             return iec61850.IEC61850_INT32U
@@ -457,6 +514,138 @@ class IEC61850Server:
             return iec61850.IEC61850_FLOAT32
         return iec61850.IEC61850_BOOLEAN
 
+    def _add_standard_das(
+        self,
+        do_obj,
+        do_key: str,
+        fc: str,
+        frame_type: int,
+        da_parts: list,
+    ) -> None:
+        """为 DO 自动补充标准 DA 结构 (q, t, dU)
+
+        许多 IEC 61850 客户端（如 .NET IEC61850Lib）在创建 FcDataNodeModel 时
+        期望每个 DO 下都有 q (品质), t (时标), dU (描述) 等标准 DA。
+        如果服务端模型缺少这些 DA，客户端在 GetDataValues 时集合索引会不匹配，
+        导致 IndexOutOfRangeException。
+
+        Args:
+            do_obj: DO 的 pyiec61850 对象
+            do_key: DO 的缓存键 (如 "MEAS/M0GGIO1.AnIn1")
+            fc: 主 DO 的 FC（可能为空，为空时需要推断）
+            frame_type: 帧类型
+            da_parts: DA 路径分段列表
+        """
+        # 推断 FC: 优先用传入值, 否则从 DA 路径推断
+        if not fc:
+            fc = self._infer_fc(frame_type, da_parts[0] if da_parts else "")
+        if not fc:
+            fc = "MX"
+
+        # 控制类型不需要 q/t/dU
+        if fc in ("CO",):
+            return
+
+        # q/t 的 FC: 遥信=ST, 其他=MX
+        qt_fc = "ST" if fc == "ST" else "MX"
+        qt_fc_const = self._resolve_fc_const(qt_fc)
+        dc_fc_const = self._resolve_fc_const("DC")
+
+        # --- 1. q (品质) - 结构体 ---
+        # IEC 61850-7-3: 品质包含 Validity、Quality Details(detailQuality)、Source、Test、OperatorBlocked
+        q_key = f"{do_key}.q"
+        if q_key not in self._do_map and qt_fc_const:
+            q_obj = iec61850.DataObject_create("q", iec61850.toModelNode(do_obj), 0)
+            self._do_map[q_key] = q_obj
+            self._keep_alive.append(q_obj)
+
+            # q 的子 BDA: Validity、Quality Details、Source、Test、OperatorBlocked
+            # Quality Details (detailQuality) 的各项作为叶子 BDA 直接挂载在 q 下
+            for bda_name, bda_type, iec_type_str in [
+                ("validity", iec61850.IEC61850_INT32, "int32"),
+                ("detailQuality", iec61850.IEC61850_INT32U, "uint32"),
+                ("source", iec61850.IEC61850_INT32, "int32"),
+                ("operatorBlocked", iec61850.IEC61850_BOOLEAN, "boolean"),
+                ("test", iec61850.IEC61850_BOOLEAN, "boolean"),
+            ]:
+                bda = iec61850.DataAttribute_create(
+                    bda_name, iec61850.toModelNode(q_obj),
+                    bda_type, qt_fc_const, 0, 0, 0
+                )
+                self._keep_alive.append(bda)
+                self._standard_bda_list.append((bda, bda_name, iec_type_str))
+
+        # --- 2. t (时标) - 结构体 ---
+        # IEC 61850-7-2: 时标包含 seconds, fraction, 以及时间质量字段
+        t_key = f"{do_key}.t"
+        if t_key not in self._do_map and qt_fc_const:
+            t_obj = iec61850.DataObject_create("t", iec61850.toModelNode(do_obj), 0)
+            self._do_map[t_key] = t_obj
+            self._keep_alive.append(t_obj)
+
+            for bda_name, bda_type, iec_type_str in [
+                ("seconds", iec61850.IEC61850_INT32, "int32"),
+                ("fraction", iec61850.IEC61850_INT32U, "uint32"),
+                ("LeapSecondsKnown", iec61850.IEC61850_BOOLEAN, "boolean"),
+                ("ClockedFailure", iec61850.IEC61850_BOOLEAN, "boolean"),
+                ("ClockNotSynchronized", iec61850.IEC61850_BOOLEAN, "boolean"),
+                ("TimeAccuracy", iec61850.IEC61850_INT32U, "uint32"),
+            ]:
+                bda = iec61850.DataAttribute_create(
+                    bda_name, iec61850.toModelNode(t_obj),
+                    bda_type, qt_fc_const, 0, 0, 0
+                )
+                self._keep_alive.append(bda)
+                self._standard_bda_list.append((bda, bda_name, iec_type_str))
+
+        # --- 3. dU (描述) - 可见字符串 ---
+        du_key = f"{do_key}.dU"
+        if du_key not in self._da_map and dc_fc_const:
+            du_da = iec61850.DataAttribute_create(
+                "dU", iec61850.toModelNode(do_obj),
+                iec61850.IEC61850_VISIBLE_STRING_255,
+                dc_fc_const, 0, 0, 0
+            )
+            self._da_map[du_key] = du_da
+            self._keep_alive.append(du_da)
+
+    def _init_standard_bda_defaults(self):
+        """初始化标准子 DA 的默认值
+
+        在服务器启动后调用，为所有 q/t/detailQuality 的子 DA 设置默认初始值，
+        避免 IED Scout 等客户端读取时因值为空显示红色感叹号。
+        """
+        if not self._server or not self._is_running:
+            return
+
+        import time as time_module
+        now_seconds = int(time_module.time())
+
+        for da, name, iec_type in self._standard_bda_list:
+            try:
+                if iec_type == "int32":
+                    # validity → 0 (good), source → 0 (process)
+                    iec61850.IedServer_updateInt32AttributeValue(
+                        self._server, da, 0
+                    )
+                elif iec_type == "boolean":
+                    # test → False, operatorBlocked → False,
+                    # detailQuality BDAs → False,
+                    # LeapSecondsKnown → False, ClockedFailure → False,
+                    # ClockNotSynchronized → False
+                    iec61850.IedServer_updateBooleanAttributeValue(
+                        self._server, da, False
+                    )
+                elif iec_type == "uint32":
+                    # TimeAccuracy → 0
+                    iec61850.IedServer_updateUnsignedAttributeValue(
+                        self._server, da, 0
+                    )
+            except Exception as e:
+                log.warning(
+                    f"初始化标准 DA 默认值失败: {name}({iec_type}), error={e}"
+                )
+
     def start(self):
         """启动 IEC 61850 MMS 服务器"""
         if self._is_running:
@@ -472,6 +661,8 @@ class IEC61850Server:
 
         if iec61850.IedServer_isRunning(self._server):
             log.info(f"IEC 61850 服务器已启动, 端口: {self.port}")
+            # 服务器启动后初始化 q/t 子 DA 的默认值，避免 IED Scout 读取时显示红色感叹号
+            self._init_standard_bda_defaults()
         else:
             self._is_running = False
             log.error(f"IEC 61850 服务器启动失败, 端口: {self.port}")
@@ -501,11 +692,11 @@ class IEC61850Server:
             return "float"
         if leaf in ("ctlVal", "setVal", "wVal") and parent in ("APC", "setMag"):
             return "float"
-        if leaf in ("stVal", "ctlVal", "subEna", "blkEna"):
+        if leaf in ("stVal", "ctlVal", "subEna", "blkEna",
+                     "LeapSecondsKnown", "ClockedFailure", "ClockNotSynchronized"):
             return "boolean"
-        if leaf in ("validity", "source", "orCat", "ctlNum", "frVal", "actVal", "frValSec"):
-            return "integer"
-        if leaf in ("seconds", "fraction"):
+        if leaf in ("validity", "source", "orCat", "ctlNum", "frVal", "actVal", "frValSec",
+                     "TimeAccuracy", "seconds", "fraction", "detailQuality"):
             return "integer"
         if leaf in ("dU", "d", "du"):
             return "string"
@@ -660,16 +851,15 @@ class IEC61850Server:
     def browse_logical_devices(self) -> list[str]:
         """浏览服务端数据模型的逻辑设备列表
 
-        跳过简单地址模式的默认 LD (self.ld_name)，
-        因为 LLN0/MMXU1/GGIO1/GGIO2 只是内部实现细节。
+        返回所有已创建的逻辑设备名称。
+        默认 GenericLD 仅在添加了简单地址测点后才存在，
+        ICD 导入模式的 LD 则动态创建。
 
         Returns:
-            逻辑设备名称列表，如 ["MEAS", "CTRL"]
+            逻辑设备名称列表，如 ["MEAS", "CTRL"] 或 ["GenericLD"]
         """
         ld_list = []
         for ld_inst in self._ld_map:
-            if ld_inst == self.ld_name:
-                continue  # 跳过简单地址模式的默认 LD
             prefix = f"{ld_inst}/"
             if any(key.startswith(prefix) for key in self._ln_map):
                 ld_list.append(ld_inst)
@@ -679,7 +869,7 @@ class IEC61850Server:
         """浏览指定逻辑设备下的逻辑节点列表
 
         对于动态 LD (ICD 导入), 返回所有 LN (包括 LLN0);
-        对于简单地址模式的默认 LD, 不应被调用 (browse_logical_devices 已排除)。
+        对于简单地址模式的默认 LD, 返回所有 LN (不含内部固定节点过滤)。
 
         Args:
             ld_inst: 逻辑设备实例名，如 "MEAS"
@@ -692,9 +882,6 @@ class IEC61850Server:
         for key in self._ln_map:
             if key.startswith(prefix):
                 ln_name = key[len(prefix):]
-                # 排除简单地址模式的固定节点
-                if ln_name in ("MMXU1", "GGIO1", "GGIO2"):
-                    continue
                 ln_names.append(ln_name)
         return sorted(ln_names)
 
@@ -759,6 +946,86 @@ class IEC61850Server:
                     }
 
         return sorted(da_map.values(), key=lambda x: x["path"])
+
+    def add_goose_control_block(
+        self,
+        name: str,
+        app_id: int,
+        data_set_ref: str,
+        conf_rev: int,
+        go_id: str = "",
+        min_time: int = 10,
+        max_time: int = 1000,
+        ld_inst: str = None,
+        entries: Optional[List[Dict[str, Any]]] = None,
+    ) -> bool:
+        """在 LLN0 下创建 GSEControlBlock 和 DataSet 节点，使 MMS 客户端可发现
+
+        Args:
+            name: GSEControlBlock 名称 (如 "gcb1")
+            app_id: APPID
+            data_set_ref: DataSet 引用路径 (如 "GenericLD/LLN0$dsGOOSE1")
+            conf_rev: 配置修订号
+            go_id: GOOSE 标识符
+            min_time: 最小重发时间 (ms)
+            max_time: 最大重发时间 (ms)
+            ld_inst: 逻辑设备实例名，默认使用 self.ld_name
+            entries: 数据集条目列表，每个条目标准 FCDA 引用路径
+
+        Returns:
+            是否成功
+        """
+        if not self._model:
+            log.warning("无法添加 GSEControlBlock: 模型未初始化")
+            return False
+
+        ld_inst = ld_inst or self.ld_name
+        lln0_key = f"{ld_inst}/LLN0"
+        lln0 = self._ln_map.get(lln0_key)
+        if lln0 is None and ld_inst == self.ld_name:
+            # 使用默认 LD 时，确保其已懒创建
+            self._ensure_base_ld()
+            lln0 = self._lln0
+        if not lln0:
+            log.warning("无法添加 GSEControlBlock: LLN0 未找到")
+            return False
+
+        try:
+            # 1. 创建 DataSet (数据集)
+            ds_name = data_set_ref.split("$")[-1] if "$" in data_set_ref else f"ds{name}"
+            data_set = iec61850.DataSet_create(ds_name, lln0)
+            if not data_set:
+                log.warning(f"创建 DataSet {ds_name} 失败")
+            else:
+                self._keep_alive.append(data_set)
+
+            # 2. 创建 GSEControlBlock
+            # appId 参数要求是十六进制字符串 (如 "0001"), 不能是整数
+            app_id_str = f"{app_id:04X}" if isinstance(app_id, int) else str(app_id)
+            gse_cb = iec61850.GSEControlBlock_create(
+                name,
+                lln0,
+                app_id_str,
+                data_set_ref,
+                conf_rev,
+                False,      # fixedOffs
+                min_time,
+                max_time,
+            )
+            if not gse_cb:
+                log.warning(f"创建 GSEControlBlock {name} 失败")
+                return False
+            self._keep_alive.append(gse_cb)
+
+            log.info(
+                f"GSEControlBlock 已添加到 MMS 数据模型: "
+                f"name={name}, app_id=0x{app_id:04X}, "
+                f"dataSet={data_set_ref}, entries={len(entries or [])}"
+            )
+            return True
+        except Exception as e:
+            log.error(f"添加 GSEControlBlock 失败: {e}")
+            return False
 
     def destroy(self):
         """销毁服务器和模型"""

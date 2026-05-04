@@ -11,6 +11,7 @@ from src.data.model.point_yx import PointYx, PointYxDict
 from src.data.model.point_yk import PointYk, PointYkDict
 from src.data.model.point_yt import PointYt, PointYtDict
 from src.data.model.point_mapping import PointMapping, PointMappingDict
+from src.data.model.goose_publisher import GoosePublisher, GoosePublisherDict, GooseEntry, GooseEntryDict
 
 __all__ = [
     "Base",
@@ -32,5 +33,9 @@ __all__ = [
     "PointYtDict",
     "PointMapping",
     "PointMappingDict",
+    "GoosePublisher",
+    "GoosePublisherDict",
+    "GooseEntry",
+    "GooseEntryDict",
 ]
 

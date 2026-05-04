@@ -17,9 +17,11 @@ class ChannelCreateRequest(BaseModel):
     parity: str = "N"
     rtu_addr: str = "1"
     group_id: Optional[int] = None
+    model_name: Optional[str] = None  # IEC61850 IED 模型名称
 
 
 class ChannelUpdateRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
     name: Optional[str] = None
     protocol_type: Optional[int] = None
     conn_type: Optional[int] = None
@@ -31,6 +33,20 @@ class ChannelUpdateRequest(BaseModel):
     stop_bits: Optional[int] = None
     parity: Optional[str] = None
     rtu_addr: Optional[str] = None
+    model_name: Optional[str] = None  # IEC61850 IED 模型名称
+
+
+class ChannelDeleteRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
+
+
+class ChannelDetailRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
+
+
+class ChannelIdRequest(BaseModel):
+    """通用通道ID请求"""
+    channel_id: int = Field(..., description="通道ID")
 
 
 class CreateAndStartDeviceRequest(BaseModel):

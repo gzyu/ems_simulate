@@ -76,6 +76,17 @@ class DbController:
             # 创建所有表
             Base.metadata.create_all(self.db_config.engine)
 
+            # 迁移: 为现有数据库添加 model_name 列 (IEC61850 IED 名称)
+            try:
+                from sqlalchemy import text
+                with self.db_config.engine.connect() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE channel ADD COLUMN model_name VARCHAR(128)"
+                    ))
+                    conn.commit()
+            except Exception:
+                pass  # 列已存在或数据库不支持
+
             print(f"SQLite 数据库初始化成功: {db_path}")
             return True
         except Exception as e:

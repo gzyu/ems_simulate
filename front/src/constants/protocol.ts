@@ -28,6 +28,11 @@ export const PROTOCOL_DEFAULT_PORTS: Record<number, number> = {
   [PROTOCOL_TYPE.IEC61850]: 102,
 } as const;
 
+// 协议客户端默认 IP 映射（仅 TCP 客户端模式使用）
+export const PROTOCOL_DEFAULT_CLIENT_IP: Record<number, string> = {
+  [PROTOCOL_TYPE.IEC61850]: '127.0.0.1',
+} as const;
+
 // 标准波特率列表
 export const BAUD_RATES = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200] as const;
 
@@ -39,6 +44,40 @@ export const IEC61850_CATEGORIES: ReadonlyArray<{ key: string; label: string }> 
   { key: 'Files', label: 'Files' },
   { key: 'DataSets', label: 'DataSets' },
   { key: 'Data Model', label: 'Data Model' },
+] as const;
+
+// GOOSE 订阅状态
+export const GOOSE_SUB_STATE = {
+  INIT: 'init',
+  CONNECTED: 'connected',
+  LOST: 'lost',
+  ERROR: 'error',
+} as const;
+
+// GOOSE 订阅状态颜色映射
+export const GOOSE_STATE_COLOR: Record<string, string> = {
+  init: '#909399',
+  connected: '#67C23A',
+  lost: '#E6A23C',
+  error: '#F56C6C',
+} as const;
+
+// GOOSE 订阅状态标签映射
+export const GOOSE_STATE_LABEL: Record<string, string> = {
+  init: '未接收',
+  connected: '已连接',
+  lost: '超时',
+  error: '错误',
+} as const;
+
+// GOOSE IEC 数据类型选项
+export const GOOSE_IEC_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'boolean', label: '布尔 (Boolean)' },
+  { value: 'integer', label: '整数 (Integer)' },
+  { value: 'float', label: '浮点 (Float)' },
+  { value: 'string', label: '字符串 (String)' },
+  { value: 'bitstring', label: '位串 (BitString)' },
+  { value: 'timestamp', label: '时标 (Timestamp)' },
 ] as const;
 
 // 判断 IEC61850 协议的字符串标识

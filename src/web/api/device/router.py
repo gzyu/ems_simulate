@@ -15,6 +15,8 @@ from src.web.api.schemas import (
     MessageListRequest, SlaveAddRequest, SlaveDeleteRequest, SlaveEditRequest,
 )
 
+# from src.web.ws.manager import manager
+
 device_router = APIRouter(prefix="/api/devices", tags=["设备管理"])
 
 
@@ -22,7 +24,7 @@ def _get_device(device_name: str, request: Request) -> Device:
     return request.app.state.device_controller.device_map[device_name]
 
 
-@device_router.get("/list", response_model=BaseResponse)
+@device_router.post("/list", response_model=BaseResponse)
 async def get_device_name_list(request: Request):
     """获取设备名列表"""
     try:
@@ -125,8 +127,8 @@ async def stop_simulation(req: SimulationStopRequest, request: Request):
         return BaseResponse(code=500, message=f"停止模拟程序失败: {e}!", data=False)
 
 
-@device_router.get("/current-table", response_model=BaseResponse)
-async def get_current_table(req: CurrentTableRequest = Depends(), request: Request = None):
+@device_router.post("/current-table", response_model=BaseResponse)
+async def get_current_table(req: CurrentTableRequest, request: Request):
     """获取当前表数据"""
     try:
         device = _get_device(req.device_name, request)

@@ -29,7 +29,7 @@ export interface AvgTimeStats {
 
 export async function getDeviceList(): Promise<Array<string>> {
   try {
-    const data = await requestApi(DEVICE_API.LIST, 'get', null);
+    const data = await requestApi(DEVICE_API.LIST, 'post', null);
     return data;
   } catch (error) {
     console.error('Error fetching device list:', error);
@@ -167,6 +167,20 @@ export async function manualRead(deviceName: string, interval: number = 0): Prom
     return data;
   } catch (error) {
     console.error('Error performing manual read:', error);
+    throw error;
+  }
+}
+
+export async function getCurrentTable(deviceName: string, slaveId: number, pointName: string = ''): Promise<Map<string, any>> {
+  try {
+    const data = await requestApi(DEVICE_API.CURRENT_TABLE, 'post', {
+      device_name: deviceName,
+      slave_id: slaveId,
+      point_name: pointName,
+    });
+    return new Map<string, any>(Object.entries(data));
+  } catch (error) {
+    console.error('Error getting current table:', error);
     throw error;
   }
 }

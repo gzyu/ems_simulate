@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Request
 
 from src.data.service.channel_service import ChannelService
-from src.web.api.schemas import BaseResponse, CreateAndStartDeviceRequest, CopyDeviceRequest
+from src.web.api.schemas import BaseResponse, ChannelIdRequest, CopyDeviceRequest
 from src.web.api.channel.helpers import (
     get_device_builder, configure_builder_network, is_client_protocol,
     reload_device_instance, increment_ip,
@@ -16,7 +16,7 @@ router = APIRouter(tags=["channel"])
 
 
 @router.post("/create-and-start", response_model=BaseResponse)
-async def create_and_start_device(req: CreateAndStartDeviceRequest, request: Request):
+async def create_and_start_device(req: ChannelIdRequest, request: Request):
     """创建通道并启动设备"""
     try:
         channel = ChannelService.get_channel_by_id(req.channel_id)
@@ -53,24 +53,24 @@ async def create_and_start_device(req: CreateAndStartDeviceRequest, request: Req
         return BaseResponse(code=500, message=f"创建并启动设备失败: {e}")
 
 
-@router.post("/restart/{channel_id}", response_model=BaseResponse)
-async def restart_device(channel_id: int, request: Request):
+@router.post("/restart", response_model=BaseResponse)
+async def restart_device(req: ChannelIdRequest, request: Request):
     """重启设备"""
     try:
         device_controller = request.app.state.device_controller
-        new_device = await reload_device_instance(device_controller, channel_id, is_start=True)
+        new_device = await reload_device_instance(device_controller, req.channel_id, is_start=True)
         return BaseResponse(message=f"设备 {new_device.name} 重启成功", data={"device_name": new_device.name})
     except Exception as e:
         log.error(f"重启设备失败: {e}")
         return BaseResponse(code=500, message=f"重启设备失败: {e}")
 
 
-@router.post("/reload-config/{channel_id}", response_model=BaseResponse)
-async def reload_device_config(channel_id: int, request: Request):
+@router.post("/reload-config", response_model=BaseResponse)
+async def reload_device_config(req: ChannelIdRequest, request: Request):
     """重新加载设备配置（不自动启动服务）"""
     try:
         device_controller = request.app.state.device_controller
-        new_device = await reload_device_instance(device_controller, channel_id, is_start=False)
+        new_device = await reload_device_instance(device_controller, req.channel_id, is_start=False)
         return BaseResponse(message=f"设备 {new_device.name} 配置已重新加载", data={"device_name": new_device.name})
     except Exception as e:
         log.error(f"重新加载设备配置失败: {e}")

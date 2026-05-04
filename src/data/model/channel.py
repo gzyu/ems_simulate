@@ -31,6 +31,8 @@ class ChannelDict(TypedDict):
     rtu_addr: str
     timeout: int
     enable: bool
+    # IEC 61850 专用
+    model_name: Optional[str]
 
 
 class Channel(Base):
@@ -94,6 +96,11 @@ class Channel(Base):
     )
     enable: Mapped[bool] = mapped_column(
         Boolean, server_default="1", comment="是否启用"
+    )
+
+    # IEC 61850 专用字段
+    model_name: Mapped[Optional[str]] = mapped_column(
+        String(128), nullable=True, comment="IED 模型名称 (IEC61850)"
     )
 
     # 关系

@@ -13,6 +13,11 @@
     <div class="breadcrumb-divider"></div>
     
     <div class="link-container">
+      <!-- GOOSE Management -->
+      <router-link to="/goose" class="icon-link goose-link" title="GOOSE 管理">
+        <el-icon :size="24" color="var(--text-secondary)"><Connection /></el-icon>
+      </router-link>
+
       <!-- Gitee Link -->
       <a href="https://gitee.com/chen-dongyu123" target="_blank" class="icon-link" title="Gitee 仓库">
         <svg t="1586506471804" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="2299" width="24" height="24">
@@ -37,7 +42,7 @@
 
 <script setup="AppHeader">
 import { ref, watch } from "vue";
-import { Expand, Fold, Document } from "@element-plus/icons-vue";
+import { Expand, Fold, Document, Connection } from "@element-plus/icons-vue";
 import { useRoute } from "vue-router";
 import { isCollapse } from "./isCollapse";
 const route = useRoute();
@@ -54,6 +59,10 @@ const updateBreadcrumb = () => {
     const deviceName = route.params.deviceName;
     breadList.value = [
       { path: route.path, meta: { title: deviceName || '设备详情' } }
+    ];
+  } else if (route.path.startsWith('/goose')) {
+    breadList.value = [
+      { path: '/goose', meta: { title: 'GOOSE 管理' } }
     ];
   } else {
     breadList.value = route.matched.filter((item) => item.meta?.title);
@@ -97,6 +106,7 @@ watch(() => route.path, updateBreadcrumb, { immediate: true });
     align-items: center;
     color: var(--text-secondary);
     transition: all 0.3s;
+    text-decoration: none;
     
     &:hover {
       opacity: 0.8;
@@ -108,6 +118,28 @@ watch(() => route.path, updateBreadcrumb, { immediate: true });
       .el-icon {
         color: var(--color-primary);
       }
+    }
+  }
+
+  .goose-link {
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 2px;
+      background: var(--color-primary);
+      border-radius: 1px;
+      transition: width 0.3s;
+    }
+
+    &:hover::after,
+    &.router-link-active::after {
+      width: 80%;
     }
   }
 }

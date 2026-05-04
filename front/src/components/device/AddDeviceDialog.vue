@@ -34,11 +34,71 @@
     
     <template #footer>
       <div class="dialog-footer">
+        <el-button v-if="showPreviewBtn" type="warning" :icon="View" :loading="previewLoading" @click="handlePreview">
+          预览 ICD
+        </el-button>
         <el-button @click="handleClose" round>取消</el-button>
         <el-button type="primary" :loading="loading" @click="handleSubmit" round class="submit-btn" :icon="Check">
           {{ isEditMode ? '保存修改' : '确认添加' }}
         </el-button>
       </div>
+    </template>
+  </el-dialog>
+
+  <!-- GOOSE 预览对话框 -->
+  <el-dialog
+    v-model="goosePreviewVisible"
+    title="ICD 文件预览"
+    width="90%"
+    style="max-width: 1100px"
+    :close-on-click-modal="false"
+    destroy-on-close
+  >
+    <el-alert
+      :title="`MMS 测点: ${goosePreviewData?.total || 0} 个 (遥测 ${goosePreviewData?.yc_count || 0}, 遥信 ${goosePreviewData?.yx_count || 0}, 遥控 ${goosePreviewData?.yk_count || 0}, 遥调 ${goosePreviewData?.yt_count || 0})`"
+      type="success"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 16px"
+    />
+
+    <div v-if="gooseControlList.length > 0">
+      <el-alert
+        :title="`发现 ${gooseControlList.length} 个 GOOSE 控制块`"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+
+      <el-table :data="gooseControlList" border size="small" max-height="350">
+        <el-table-column prop="go_cb_ref" label="GoCBRef" min-width="240" show-overflow-tooltip />
+        <el-table-column prop="go_id" label="GoID" width="100" />
+        <el-table-column prop="app_id" label="APPID" width="70" />
+        <el-table-column prop="dat_set" label="DataSet" width="120" show-overflow-tooltip />
+        <el-table-column prop="conf_rev" label="ConfRev" width="70" />
+        <el-table-column label="MAC地址" width="140">
+          <template #default="{ row }">{{ formatMac(row) }}</template>
+        </el-table-column>
+        <el-table-column label="数据集成员" width="90" align="center">
+          <template #default="{ row }">{{ row.dataset_member_count }}</template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div v-else-if="previewDone">
+      <el-alert
+        title="未发现 GOOSE 控制块，仅包含 MMS 测点配置"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+    </div>
+
+    <template #footer>
+      <el-button type="primary" @click="goosePreviewVisible = false">
+        关闭
+      </el-button>
     </template>
   </el-dialog>
 </template>
@@ -47,7 +107,7 @@
 import { ref, computed, reactive, watch, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import type { FormInstance, FormRules } from 'element-plus';
-import { Check } from "@element-plus/icons-vue";
+import { Check, View } from "@element-plus/icons-vue";
 
 // 子组件
 import DeviceFormBasic from './DeviceFormBasic.vue';
@@ -55,9 +115,9 @@ import DeviceFormConfig from './DeviceFormConfig.vue';
 import DeviceFormPoints from './DeviceFormPoints.vue';
 
 // API
-import { createChannel, importPoints, importIcdPoints, getChannel, updateChannel, getSerialPorts, reloadDeviceConfig, getProtocolConfig, restartDevice } from '@/api/channelApi';
+import { createChannel, importPoints, importIcdPoints, previewIcd, getChannel, updateChannel, getSerialPorts, reloadDeviceConfig, getProtocolConfig } from '@/api/channelApi';
 import { getAllDeviceGroups, type DeviceGroupInfo } from '@/api/deviceGroupApi';
-import type { ChannelCreateRequest, ProtocolOption } from '@/types/channel';
+import type { ChannelCreateRequest, ProtocolOption, PointImportResult } from '@/types/channel';
 
 const props = defineProps<{
   visible: boolean;
@@ -75,6 +135,7 @@ const emit = defineEmits<{
 const formRef = ref<FormInstance>();
 const uploadCompRef = ref();
 const loading = ref(false);
+const previewLoading = ref(false);
 const originalName = ref('');
 const mediaType = ref<'serial' | 'network'>('network');
 const selectedFile = ref<File | null>(null);
@@ -82,6 +143,17 @@ const selectedIcdFile = ref<File | null>(null);
 const deviceGroupOptions = ref<DeviceGroupInfo[]>([]);
 const serialPorts = ref<Array<{device: string, description: string}>>([]);
 const protocols = ref<ProtocolOption[]>([]);
+
+// GOOSE 预览状态
+const goosePreviewVisible = ref(false);
+const goosePreviewData = ref<PointImportResult | null>(null);
+const previewDone = ref(false);
+
+const showPreviewBtn = computed(() => !!selectedIcdFile.value);
+
+const gooseControlList = computed(() => {
+  return goosePreviewData.value?.goose?.summary?.gse_controls || [];
+});
 
 const isEditMode = computed(() => !!props.channelId);
 const dialogVisible = computed({
@@ -150,9 +222,42 @@ const resetForm = () => {
   });
   selectedFile.value = null;
   selectedIcdFile.value = null;
+  goosePreviewData.value = null;
+  previewDone.value = false;
   uploadCompRef.value?.clearFiles();
 };
 
+// MAC 地址格式化：优先用 ICD 中的，否则按 GOOSE 标准根据 APPID 自动推算
+const formatMac = (row: any) => {
+  if (row.mac_address) return row.mac_address;
+  if (row.app_id) {
+    const prefix = '01:0C:CD';
+    let appId = typeof row.app_id === 'number' ? row.app_id : parseInt(row.app_id, 16) || parseInt(row.app_id, 10) || 0;
+    const high = (appId >> 8) & 0xFF;
+    const low = appId & 0xFF;
+    return `${prefix}:${high.toString(16).padStart(2, '0').toUpperCase()}:${low.toString(16).padStart(2, '0').toUpperCase()}`;
+  }
+  return '-';
+};
+
+// ICD 预览
+const handlePreview = async () => {
+  if (!selectedIcdFile.value) return;
+  previewLoading.value = true;
+  try {
+    const result = await previewIcd(selectedIcdFile.value);
+    goosePreviewData.value = result;
+    previewDone.value = true;
+    goosePreviewVisible.value = true;
+  } catch (e: any) {
+    console.error('预览 ICD 失败', e);
+    // error handled by global interceptor
+  } finally {
+    previewLoading.value = false;
+  }
+};
+
+// 提交保存
 const handleSubmit = async () => {
   if (!formRef.value) return;
   await formRef.value.validate(async (valid) => {
@@ -163,7 +268,6 @@ const handleSubmit = async () => {
       if (isEditMode.value && props.channelId) {
         await updateChannel(props.channelId, form);
         resultId = props.channelId;
-        // 更新后重新加载配置（不自动启动设备）
         await reloadDeviceConfig(props.channelId);
         ElMessage.success('更新成功，配置已重新加载');
       } else {
@@ -173,7 +277,8 @@ const handleSubmit = async () => {
       }
       
       if (selectedIcdFile.value) {
-        await importIcdPoints(resultId, selectedIcdFile.value);
+        const importResult = await importIcdPoints(resultId, selectedIcdFile.value, 'eth0', true);
+        ElMessage.success(`ICD 导入成功: 测点 ${importResult?.total || 0} 个，GOOSE Publisher ${importResult?.goose?.created_count || 0} 个`);
       } else if (selectedFile.value) {
         await importPoints(resultId, selectedFile.value);
       }
@@ -190,6 +295,9 @@ const handleSubmit = async () => {
 
 const handleClose = () => {
   dialogVisible.value = false;
+  goosePreviewVisible.value = false;
+  goosePreviewData.value = null;
+  previewDone.value = false;
   emit('close');
 };
 </script>

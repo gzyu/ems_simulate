@@ -46,6 +46,7 @@ export interface DeviceGroupCreateRequest {
 }
 
 export interface DeviceGroupUpdateRequest {
+  group_id: number;
   name?: string;
   parent_id?: number | null;
   description?: string | null;
@@ -66,7 +67,7 @@ export interface BatchOperationRequest {
 
 export async function getDeviceGroupTree(): Promise<DeviceGroupTreeResponse> {
   try {
-    return await requestApi(DEVICE_GROUP_API.TREE, 'get', null);
+    return await requestApi(DEVICE_GROUP_API.TREE, 'post', null);
   } catch (error) {
     console.error('Error fetching device group tree:', error);
     throw error;
@@ -75,7 +76,7 @@ export async function getDeviceGroupTree(): Promise<DeviceGroupTreeResponse> {
 
 export async function getAllDeviceGroups(): Promise<DeviceGroupInfo[]> {
   try {
-    return await requestApi(DEVICE_GROUP_API.LIST, 'get', null);
+    return await requestApi(DEVICE_GROUP_API.LIST, 'post', null);
   } catch (error) {
     console.error('Error fetching device groups:', error);
     throw error;
@@ -84,7 +85,7 @@ export async function getAllDeviceGroups(): Promise<DeviceGroupInfo[]> {
 
 export async function getRootDeviceGroups(): Promise<DeviceGroupInfo[]> {
   try {
-    return await requestApi(DEVICE_GROUP_API.ROOT, 'get', null);
+    return await requestApi(DEVICE_GROUP_API.ROOT, 'post', null);
   } catch (error) {
     console.error('Error fetching root device groups:', error);
     throw error;
@@ -93,7 +94,7 @@ export async function getRootDeviceGroups(): Promise<DeviceGroupInfo[]> {
 
 export async function getUngroupedDevices(): Promise<DeviceInfo[]> {
   try {
-    return await requestApi(DEVICE_GROUP_API.UNGROUPED, 'get', null);
+    return await requestApi(DEVICE_GROUP_API.UNGROUPED, 'post', null);
   } catch (error) {
     console.error('Error fetching ungrouped devices:', error);
     throw error;
@@ -102,7 +103,7 @@ export async function getUngroupedDevices(): Promise<DeviceInfo[]> {
 
 export async function getDeviceGroup(groupId: number): Promise<DeviceGroupInfo> {
   try {
-    return await requestApi(DEVICE_GROUP_API.DETAIL(groupId), 'get', null);
+    return await requestApi(DEVICE_GROUP_API.DETAIL, 'post', { group_id: groupId });
   } catch (error) {
     console.error('Error fetching device group:', error);
     throw error;
@@ -111,7 +112,7 @@ export async function getDeviceGroup(groupId: number): Promise<DeviceGroupInfo> 
 
 export async function getDevicesInGroup(groupId: number): Promise<DeviceInfo[]> {
   try {
-    return await requestApi(DEVICE_GROUP_API.DEVICES_IN_GROUP(groupId), 'get', null);
+    return await requestApi(DEVICE_GROUP_API.DEVICES_IN_GROUP, 'post', { group_id: groupId });
   } catch (error) {
     console.error('Error fetching devices in group:', error);
     throw error;
@@ -120,7 +121,7 @@ export async function getDevicesInGroup(groupId: number): Promise<DeviceInfo[]> 
 
 export async function getChildrenGroups(groupId: number): Promise<DeviceGroupInfo[]> {
   try {
-    return await requestApi(DEVICE_GROUP_API.CHILDREN(groupId), 'get', null);
+    return await requestApi(DEVICE_GROUP_API.CHILDREN, 'post', { group_id: groupId });
   } catch (error) {
     console.error('Error fetching children groups:', error);
     throw error;
@@ -138,7 +139,7 @@ export async function createDeviceGroup(request: DeviceGroupCreateRequest): Prom
 
 export async function updateDeviceGroup(groupId: number, request: DeviceGroupUpdateRequest): Promise<boolean> {
   try {
-    await requestApi(DEVICE_GROUP_API.UPDATE(groupId), 'put', request);
+    await requestApi(DEVICE_GROUP_API.UPDATE, 'post', { group_id: groupId, ...request });
     return true;
   } catch (error) {
     console.error('Error updating device group:', error);
@@ -148,7 +149,7 @@ export async function updateDeviceGroup(groupId: number, request: DeviceGroupUpd
 
 export async function deleteDeviceGroup(groupId: number, cascade: boolean = false): Promise<boolean> {
   try {
-    await instance.delete(DEVICE_GROUP_API.DELETE(groupId), { params: { cascade } });
+    await requestApi(DEVICE_GROUP_API.DELETE, 'post', { group_id: groupId, cascade });
     return true;
   } catch (error) {
     console.error('Error deleting device group:', error);
@@ -168,7 +169,7 @@ export async function addDeviceToGroup(deviceId: number, groupId: number): Promi
 
 export async function removeDeviceFromGroup(deviceId: number): Promise<boolean> {
   try {
-    await requestApi(DEVICE_GROUP_API.REMOVE_DEVICE(deviceId), 'post', null);
+    await requestApi(DEVICE_GROUP_API.REMOVE_DEVICE, 'post', { device_id: deviceId });
     return true;
   } catch (error) {
     console.error('Error removing device from group:', error);
@@ -190,7 +191,7 @@ export async function batchDeviceOperation(
   operation: 'start' | 'stop' | 'reset',
 ): Promise<{ success_count: number; fail_count: number }> {
   try {
-    return await requestApi(DEVICE_GROUP_API.BATCH_OPERATION(groupId), 'post', { group_id: groupId, operation });
+    return await requestApi(DEVICE_GROUP_API.BATCH_OPERATION, 'post', { group_id: groupId, operation });
   } catch (error) {
     console.error('Error batch operating devices:', error);
     throw error;
@@ -199,7 +200,7 @@ export async function batchDeviceOperation(
 
 export async function updateDeviceGroupStatus(groupId: number, status: number): Promise<boolean> {
   try {
-    await instance.put(DEVICE_GROUP_API.UPDATE_STATUS(groupId), null, { params: { status } });
+    await requestApi(DEVICE_GROUP_API.UPDATE_STATUS, 'post', { group_id: groupId, status });
     return true;
   } catch (error) {
     console.error('Error updating device group status:', error);

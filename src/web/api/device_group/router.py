@@ -8,16 +8,19 @@ from src.web.api.schemas import (
     DeviceGroupCreateRequest,
     DeviceGroupUpdateRequest,
     DeviceGroupDeleteRequest,
+    DeviceGroupIdRequest,
     DeviceToGroupRequest,
+    RemoveDeviceRequest,
     DevicesToGroupRequest,
     BatchDeviceOperationRequest,
+    DeviceGroupStatusRequest,
 )
 from src.web.log import log
 
 device_group_router = APIRouter(prefix="/api/device-groups", tags=["设备组管理"])
 
 
-@device_group_router.get("/tree")
+@device_group_router.post("/tree")
 async def get_device_group_tree():
     """获取设备组树形结构（包含未分组设备）"""
     try:
@@ -28,7 +31,7 @@ async def get_device_group_tree():
         return BaseResponse(code=500, message=f"获取设备组树失败: {str(e)}")
 
 
-@device_group_router.get("/")
+@device_group_router.post("/list")
 async def get_all_groups():
     """获取所有设备组（扁平列表）"""
     try:
@@ -39,7 +42,7 @@ async def get_all_groups():
         return BaseResponse(code=500, message=f"获取设备组列表失败: {str(e)}")
 
 
-@device_group_router.get("/root")
+@device_group_router.post("/root")
 async def get_root_groups():
     """获取顶级设备组"""
     try:
@@ -50,7 +53,7 @@ async def get_root_groups():
         return BaseResponse(code=500, message=f"获取顶级设备组失败: {str(e)}")
 
 
-@device_group_router.get("/ungrouped")
+@device_group_router.post("/ungrouped")
 async def get_ungrouped_devices():
     """获取未分组设备"""
     try:
@@ -61,11 +64,11 @@ async def get_ungrouped_devices():
         return BaseResponse(code=500, message=f"获取未分组设备失败: {str(e)}")
 
 
-@device_group_router.get("/{group_id}")
-async def get_group_by_id(group_id: int):
+@device_group_router.post("/detail")
+async def get_group_by_id(body: DeviceGroupIdRequest):
     """根据ID获取设备组详情"""
     try:
-        group = DeviceGroupService.get_group_by_id(group_id)
+        group = DeviceGroupService.get_group_by_id(body.group_id)
         if not group:
             return BaseResponse(code=404, message="设备组不存在")
         return BaseResponse(data=group)
@@ -74,29 +77,29 @@ async def get_group_by_id(group_id: int):
         return BaseResponse(code=500, message=f"获取设备组失败: {str(e)}")
 
 
-@device_group_router.get("/{group_id}/devices")
-async def get_group_devices(group_id: int):
+@device_group_router.post("/devices")
+async def get_group_devices(body: DeviceGroupIdRequest):
     """获取设备组内的设备列表"""
     try:
-        devices = DeviceGroupService.get_devices_by_group(group_id)
+        devices = DeviceGroupService.get_devices_by_group(body.group_id)
         return BaseResponse(data=devices)
     except Exception as e:
         log.error(f"获取设备组内设备失败: {e}")
         return BaseResponse(code=500, message=f"获取设备组内设备失败: {str(e)}")
 
 
-@device_group_router.get("/{group_id}/children")
-async def get_children_groups(group_id: int):
+@device_group_router.post("/children")
+async def get_children_groups(body: DeviceGroupIdRequest):
     """获取子设备组"""
     try:
-        groups = DeviceGroupService.get_children_groups(group_id)
+        groups = DeviceGroupService.get_children_groups(body.group_id)
         return BaseResponse(data=groups)
     except Exception as e:
         log.error(f"获取子设备组失败: {e}")
         return BaseResponse(code=500, message=f"获取子设备组失败: {str(e)}")
 
 
-@device_group_router.post("/")
+@device_group_router.post("/create")
 async def create_group(request: DeviceGroupCreateRequest):
     """创建设备组"""
     try:
@@ -117,15 +120,15 @@ async def create_group(request: DeviceGroupCreateRequest):
         return BaseResponse(code=500, message=f"创建设备组失败: {str(e)}")
 
 
-@device_group_router.put("/{group_id}")
-async def update_group(group_id: int, request: DeviceGroupUpdateRequest):
+@device_group_router.post("/update")
+async def update_group(body: DeviceGroupUpdateRequest):
     """更新设备组"""
     try:
-        update_data = {k: v for k, v in request.dict().items() if v is not None}
+        update_data = {k: v for k, v in body.dict().items() if v is not None and k != "group_id"}
         if not update_data:
             return BaseResponse(code=400, message="没有提供更新数据")
 
-        success = DeviceGroupService.update_group(group_id, **update_data)
+        success = DeviceGroupService.update_group(body.group_id, **update_data)
         if success:
             return BaseResponse(message="设备组更新成功")
         else:
@@ -135,11 +138,11 @@ async def update_group(group_id: int, request: DeviceGroupUpdateRequest):
         return BaseResponse(code=500, message=f"更新设备组失败: {str(e)}")
 
 
-@device_group_router.delete("/{group_id}")
-async def delete_group(group_id: int, cascade: bool = False):
+@device_group_router.post("/delete")
+async def delete_group(body: DeviceGroupDeleteRequest):
     """删除设备组"""
     try:
-        success = DeviceGroupService.delete_group(group_id, cascade)
+        success = DeviceGroupService.delete_group(body.group_id, body.cascade)
         if success:
             return BaseResponse(message="设备组删除成功")
         else:
@@ -165,11 +168,11 @@ async def add_device_to_group(request: DeviceToGroupRequest):
         return BaseResponse(code=500, message=f"添加设备到设备组失败: {str(e)}")
 
 
-@device_group_router.post("/remove-device/{device_id}")
-async def remove_device_from_group(device_id: int):
+@device_group_router.post("/remove-device")
+async def remove_device_from_group(body: RemoveDeviceRequest):
     """将设备从设备组移除"""
     try:
-        success = DeviceGroupService.remove_device_from_group(device_id)
+        success = DeviceGroupService.remove_device_from_group(body.device_id)
         if success:
             return BaseResponse(message="设备已从设备组移除")
         else:
@@ -192,16 +195,16 @@ async def move_devices_to_group(request: DevicesToGroupRequest):
         return BaseResponse(code=500, message=f"批量移动设备失败: {str(e)}")
 
 
-@device_group_router.post("/{group_id}/batch-operation")
-async def batch_device_operation(group_id: int, request: BatchDeviceOperationRequest, req: Request):
+@device_group_router.post("/batch-operation")
+async def batch_device_operation(body: BatchDeviceOperationRequest, req: Request):
     """批量操作设备组内的设备"""
     try:
         device_controller = req.app.state.device_controller
 
-        if group_id == 0:
+        if body.group_id == 0:
             devices = DeviceGroupService.get_ungrouped_devices()
         else:
-            devices = DeviceGroupService.get_devices_by_group(group_id)
+            devices = DeviceGroupService.get_devices_by_group(body.group_id)
 
         if not devices:
             return BaseResponse(code=404, message="设备组内没有设备")
@@ -219,18 +222,18 @@ async def batch_device_operation(group_id: int, request: BatchDeviceOperationReq
 
             try:
                 result = False
-                if request.operation == "start":
+                if body.operation == "start":
                     result = await device.start()
-                elif request.operation == "stop":
+                elif body.operation == "stop":
                     result = await device.stop()
-                elif request.operation == "reset":
+                elif body.operation == "reset":
                     device.resetPointValues()
                     result = True
 
                 if result:
                     success_count += 1
                 else:
-                    log.error(f"操作设备 {device_name} 失败: {request.operation} 返回 False")
+                    log.error(f"操作设备 {device_name} 失败: {body.operation} 返回 False")
                     fail_count += 1
             except Exception as e:
                 log.error(f"操作设备 {device_name} 失败: {e}")
@@ -245,11 +248,11 @@ async def batch_device_operation(group_id: int, request: BatchDeviceOperationReq
         return BaseResponse(code=500, message=f"批量操作设备失败: {str(e)}")
 
 
-@device_group_router.put("/{group_id}/status")
-async def update_group_status(group_id: int, status: int):
+@device_group_router.post("/update-status")
+async def update_group_status(body: DeviceGroupStatusRequest):
     """更新设备组状态"""
     try:
-        success = DeviceGroupService.update_group_status(group_id, status)
+        success = DeviceGroupService.update_group_status(body.group_id, body.status)
         if success:
             return BaseResponse(message="设备组状态更新成功")
         else:
