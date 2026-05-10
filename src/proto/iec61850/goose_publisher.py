@@ -211,6 +211,10 @@ class GoosePublisher:
     def add_entry(self, entry: GooseDataSetEntry) -> None:
         """添加数据集条目"""
         with self._lock:
+            # 去重检查：不允许同名条目
+            for existing in self._entries:
+                if existing.name == entry.name:
+                    raise ValueError(f"数据集条目名称已存在: {entry.name}")
             self._entries.append(entry)
             self._is_created = False  # 需要重建
 
@@ -222,16 +226,28 @@ class GoosePublisher:
                 self._is_created = False
 
     def update_entry(self, index: int, value: Any) -> bool:
-        """更新数据集条目值，返回 True 表示值有变化"""
+        """更新数据集条目值，返回 True 表示值有变化
+
+        当值变化时:
+        - stNum 自动递增，sqNum 重置
+        - 如果 Publisher 正在运行，立即发送 GOOSE 报文（IEC 61850 要求）
+        """
+        changed = False
         with self._lock:
             if 0 <= index < len(self._entries):
                 old_value = self._entries[index].value
                 self._entries[index].value = value
                 if old_value != value:
                     self._increment_st_num()
-                    return True
-                return False
-            return False
+                    changed = True
+
+        if changed and self._is_running:
+            try:
+                self.publish()
+            except Exception as e:
+                log.error(f"更新条目值后立即发布 GOOSE 失败: {e}")
+
+        return changed
 
     def get_entries(self) -> List[Dict[str, Any]]:
         """获取所有数据集条目"""

@@ -280,12 +280,12 @@
         </el-table-column>
         <el-table-column label="名称" width="150">
           <template #default="{ row }">
-            <el-input v-model="row.name" size="small" />
+            <el-input v-model="row.name" size="small" :disabled="row._new !== true" placeholder="条目名称" />
           </template>
         </el-table-column>
         <el-table-column label="类型" width="130">
           <template #default="{ row }">
-            <el-select v-model="row.iec_type" size="small">
+            <el-select v-model="row.iec_type" size="small" :disabled="row._new !== true">
               <el-option v-for="opt in GOOSE_IEC_TYPE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
             </el-select>
           </template>
@@ -304,9 +304,13 @@
           </template>
         </el-table-column>
       </el-table>
-      <div style="margin-top: 12px">
+      <div style="margin-top: 12px; display: flex; gap: 8px">
         <el-button :icon="Plus" size="small" @click="addEntryToEditor">添加条目</el-button>
       </div>
+      <template #footer>
+        <el-button @click="entryEditorVisible = false">关闭</el-button>
+        <el-button type="primary" @click="saveNewEntries" :loading="savingEntries">保存新增条目</el-button>
+      </template>
     </el-dialog>
 
     <!-- 订阅管理对话框 -->
@@ -465,7 +469,13 @@ const receiverForm = reactive({
 // ===== 数据集编辑 =====
 const entryEditorVisible = ref(false)
 const editingPublisher = ref<GoosePublisherStatus | null>(null)
-const editingEntries = ref<{ name: string; value: any; iec_type: string }[]>([])
+const editingEntries = ref<{ name: string; value: any; iec_type: string; _new?: boolean }[]>([])
+const savingEntries = ref(false)
+
+/** 检查名称是否已存在于条目列表中 */
+function hasDuplicateName(name: string, excludeIndex?: number): boolean {
+  return editingEntries.value.some((e, i) => e.name === name && i !== excludeIndex)
+}
 
 // ===== 订阅管理 =====
 const subManagerVisible = ref(false)
@@ -591,16 +601,30 @@ async function deletePublisher(id: string) {
 // ===== 数据集编辑 =====
 function editPublisherEntries(pub: GoosePublisherStatus) {
   editingPublisher.value = pub
-  editingEntries.value = (pub.entries || []).map(e => ({ ...e }))
+  editingEntries.value = (pub.entries || []).map(e => ({ ...e, _new: false }))
   entryEditorVisible.value = true
 }
 
 function addEntryToEditor() {
-  editingEntries.value.push({ name: '', value: false, iec_type: 'boolean' })
+  // 去重检查：新条目名称不能为空，也不能与现有条目重名
+  const existingNames = editingEntries.value.map(e => e.name).filter(Boolean)
+  // 空条目检查：如果已有未填名称的新条目，不允许再添加
+  const hasBlank = editingEntries.value.some(e => e._new && !e.name)
+  if (hasBlank) {
+    ElMessage.warning('请先填写新增条目的名称')
+    return
+  }
+  editingEntries.value.push({ name: '', value: false, iec_type: 'boolean', _new: true })
 }
 
 async function removeEntry(index: number) {
   if (editingPublisher.value) {
+    const entry = editingEntries.value[index]
+    if (entry._new) {
+      // 本地新增未保存的条目，直接移除即可
+      editingEntries.value.splice(index, 1)
+      return
+    }
     try {
       await deleteGoosePublisherEntry(editingPublisher.value.id, index)
       editingEntries.value.splice(index, 1)
@@ -612,12 +636,45 @@ async function removeEntry(index: number) {
 }
 
 async function onEntryValueChange(row: any) {
-  if (editingPublisher.value) {
+  if (editingPublisher.value && row._new !== true && row.index !== undefined) {
     try {
       await updateGoosePublisherEntry(editingPublisher.value.id, row.index, row.value)
     } catch (e: any) {
       ElMessage.error(e?.message || '更新值失败')
     }
+  }
+}
+
+async function saveNewEntries() {
+  if (!editingPublisher.value) return
+  const newEntries = editingEntries.value.filter(e => e._new && e.name)
+  if (newEntries.length === 0) {
+    ElMessage.info('没有新增条目需要保存')
+    return
+  }
+  // 去重检查
+  for (const entry of newEntries) {
+    if (hasDuplicateName(entry.name)) {
+      ElMessage.warning(`条目名称 "${entry.name}" 已存在，请修改后重试`)
+      return
+    }
+  }
+  savingEntries.value = true
+  try {
+    for (const entry of newEntries) {
+      await addGoosePublisherEntry(editingPublisher.value.id, entry.name, entry.value, entry.iec_type)
+    }
+    ElMessage.success(`已保存 ${newEntries.length} 个新条目`)
+    await refreshPublishers()
+    // 重新打开编辑器刷新数据
+    const pub = publishers.value.find(p => p.id === editingPublisher.value?.id)
+    if (pub) {
+      editingEntries.value = (pub.entries || []).map(e => ({ ...e, _new: false }))
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存新增条目失败')
+  } finally {
+    savingEntries.value = false
   }
 }
 

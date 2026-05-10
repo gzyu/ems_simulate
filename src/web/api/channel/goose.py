@@ -291,6 +291,29 @@ async def update_publisher_entry(
             value=body.value,
         )
         if result is not None:
+            # 同步更新 MMS 服务器数据模型中的对应 DA 值（如果有）
+            try:
+                channel_id = manager._channel_map.get(body.publisher_id)
+                if channel_id is not None:
+                    device_controller = getattr(request.app.state, "device_controller", None)
+                    if device_controller:
+                        _device = device_controller.get_device_by_id(channel_id)
+                        if _device and hasattr(_device, 'protocol_handler') and _device.protocol_handler:
+                            _handler = _device.protocol_handler
+                            if hasattr(_handler, 'server') and _handler.server:
+                                iec61850_server = _handler.server
+                                publisher = manager._publishers.get(body.publisher_id)
+                                if publisher:
+                                    entries = publisher.get_entries()
+                                    if 0 <= body.index < len(entries):
+                                        entry_name = entries[body.index].get("name", "")
+                                        if entry_name:
+                                            # 尝试更新 MMS 数据模型中的对应 DA
+                                            iec61850_server.set_point_value(entry_name, body.value)
+                                            log.debug(f"已同步更新 MMS 模型 DA: {entry_name} = {body.value}")
+            except Exception as sync_err:
+                log.debug(f"同步 MMS 模型 DA 值失败（非致命）: {sync_err}")
+
             return BaseResponse(
                 message="更新数据集条目成功",
                 data={"publisher_id": body.publisher_id, "index": body.index, "changed": result},

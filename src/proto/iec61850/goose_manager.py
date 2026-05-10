@@ -419,10 +419,17 @@ class GooseManager:
                         simulation=cfg.get("simulation", True),
                     )
 
-                    # 添加数据集条目
+                    # 添加数据集条目（跳过重复名称，兼容旧数据）
+                    seen_names: set = set()
                     for e in cfg.get("entries", []):
+                        name = e.get("name", "")
+                        if not name or name in seen_names:
+                            if name:
+                                log.warning(f"数据库加载时跳过重复的条目名称: {name}")
+                            continue
+                        seen_names.add(name)
                         entry = GooseDataSetEntry(
-                            name=e.get("name", ""),
+                            name=name,
                             value=e.get("value"),
                             iec_type=e.get("iec_type", "boolean"),
                         )

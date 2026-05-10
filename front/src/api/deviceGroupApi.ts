@@ -46,7 +46,6 @@ export interface DeviceGroupCreateRequest {
 }
 
 export interface DeviceGroupUpdateRequest {
-  group_id: number;
   name?: string;
   parent_id?: number | null;
   description?: string | null;

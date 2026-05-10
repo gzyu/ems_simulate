@@ -90,7 +90,6 @@ export interface GoosePublisherCreateRequest {
 
 /** 更新 Publisher 请求 */
 export interface GoosePublisherUpdateRequest {
-  publisher_id: string;
   go_id?: string;
   conf_rev?: number;
   time_allowed_to_live?: number;
@@ -101,13 +100,6 @@ export interface GoosePublisherUpdateRequest {
 export interface GooseEntryAddRequest {
   publisher_id: string;
   entry: { name: string; value: boolean | number | string; iec_type: string };
-}
-
-/** 更新数据集条目请求 */
-export interface GooseEntryUpdateRequest {
-  publisher_id: string;
-  index: number;
-  value: boolean | number | string;
 }
 
 /** 创建 Receiver 请求 */
@@ -123,7 +115,6 @@ export interface GooseReceiverCreateRequest {
 
 /** 创建订阅请求 */
 export interface GooseSubscriptionCreateRequest {
-  receiver_id: string;
   go_cb_ref: string;
   app_id?: number | null;
   dst_mac?: number[] | null;
@@ -185,18 +176,27 @@ export async function publishGooseNow(publisherId: string): Promise<boolean> {
 /** 添加数据集条目 */
 export async function addGoosePublisherEntry(
   publisherId: string,
-  req: GooseEntryAddRequest,
+  name: string,
+  value: boolean | number | string,
+  iec_type: string,
 ): Promise<any> {
-  return await requestApi(GOOSE_API.PUBLISHER_ENTRIES_ADD, 'post', req);
+  return await requestApi(GOOSE_API.PUBLISHER_ENTRIES_ADD, 'post', {
+    publisher_id: publisherId,
+    entry: { name, value, iec_type },
+  });
 }
 
 /** 更新数据集条目 */
 export async function updateGoosePublisherEntry(
   publisherId: string,
   entryIndex: number,
-  req: GooseEntryUpdateRequest,
+  value: boolean | number | string,
 ): Promise<any> {
-  return await requestApi(GOOSE_API.PUBLISHER_ENTRIES_UPDATE, 'post', req);
+  return await requestApi(GOOSE_API.PUBLISHER_ENTRIES_UPDATE, 'post', {
+    publisher_id: publisherId,
+    index: entryIndex,
+    value,
+  });
 }
 
 /** 删除数据集条目 */
@@ -251,7 +251,7 @@ export async function addGooseSubscription(
   receiverId: string,
   req: GooseSubscriptionCreateRequest,
 ): Promise<GooseSubscriptionStatus | null> {
-  return await requestApi(GOOSE_API.RECEIVER_SUBSCRIPTIONS_ADD, 'post', req);
+  return await requestApi(GOOSE_API.RECEIVER_SUBSCRIPTIONS_ADD, 'post', { receiver_id: receiverId, ...req });
 }
 
 /** 移除订阅 */
