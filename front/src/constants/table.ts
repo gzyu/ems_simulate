@@ -115,7 +115,7 @@ export function getIec104TagType(label: string): string {
 // ===== 提示文本 =====
 
 export const DECODE_CODE_TOOLTIP = '解析码说明: 16位(0x20/21/C0/C1), 32位整(0x40/41/D0/D1), 32位浮(0x42/D2), 64位(0x60/61/E0/E1)';
-export const FUNC_CODE_TOOLTIP = '01:读线圈 02:读离散输入 03:读保持寄存器 04:读输入寄存器';
+export const FUNC_CODE_TOOLTIP = '01:读线圈(可读写→05写) 02:读离散输入(只读) 03:读保持寄存器(可读写→06写) 04:读输入寄存器(只读)';
 
 // ===== 客户端协议标识 =====
 

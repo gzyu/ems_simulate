@@ -95,7 +95,7 @@ class GoosePublisherEntryRemove(BaseModel):
 
 class GooseSubscriptionCreate(BaseModel):
     """创建 GOOSE 订阅"""
-    receiver_id: str = Field(..., description="Receiver 标识")
+    receiver_id: str = Field("", description="Receiver 标识（新建时可选）")
     go_cb_ref: str = Field(..., description="GOOSE 控制块引用 (MMS格式)", min_length=1)
     app_id: Optional[int] = Field(None, description="APPID 过滤", ge=0, le=0xFFFF)
     dst_mac: Optional[List[int]] = Field(None, description="目标MAC地址过滤 (6字节)", max_length=6)

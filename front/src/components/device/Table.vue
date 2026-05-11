@@ -290,9 +290,9 @@
             >
               读取
             </el-button>
-            <!-- 非 IEC61850 客户端: 写入 (仅遥控/遥调) -->
+            <!-- 非 IEC61850 客户端: 写入 (Modbus: func_code=01/03 也可写; 其他协议仅遥控/遥调) -->
             <el-button
-              v-if="isClientDevice && !isIec61850Client && [PointType.YK, PointType.YT].includes(getPointType(scope.row['帧类型']))"
+              v-if="isClientDevice && !isIec61850Client && (isModbusWriteable(scope.row) || [PointType.YK, PointType.YT].includes(getPointType(scope.row['帧类型'])))"
               type="success"
               size="small"
               :icon="Edit"
@@ -738,6 +738,14 @@ const handleMetadataUpdate = (newC: string, oldC: string) => {
 };
 
 const handlePointSimulatorUpdate = () => null;
+
+/** 判断 Modbus 测点是否可写（功能码 01/03 对应线圈/保持寄存器，可读可写） */
+const isModbusWriteable = (row: any) => {
+  if (!isClientDevice.value || isIec61850Client.value) return false;
+  if (!isModbus.value) return false;
+  const funcCode = Number(row['功能码']);
+  return funcCode === 1 || funcCode === 3;
+};
 
 const handleReadPoint = async (pointCode: string) => {
   readingPoints[pointCode] = true;

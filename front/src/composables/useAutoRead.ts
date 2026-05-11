@@ -70,6 +70,9 @@ export function useAutoRead(options: AutoReadOptions) {
     { label: '逐点', value: 'single' },
   ];
 
+  // 逐点自动读取定时器
+  let singlePointAutoReadTimer: any = null;
+
   // 判断是否需要显示自动读取控件
   const needsAutoReadControls = computed(() => {
     const protocolStr = String(protocolType.value);
@@ -100,13 +103,35 @@ export function useAutoRead(options: AutoReadOptions) {
     }
   };
 
+  /** 停止所有自动读取（批量+逐点） */
+  const stopAllAutoRead = async () => {
+    await stopAutoRead(routeName.value).catch(() => {});
+    stopSinglePointAutoRead();
+  };
+
   const handleAutoReadChange = async (enabled: boolean) => {
     if (enabled) {
-      await startAutoRead(routeName.value);
-      ElMessage.success('已启用自动读取');
+      if (readMode.value === 'batch') {
+        await startAutoRead(routeName.value);
+        ElMessage.success('已启用自动读取（批量模式）');
+      } else {
+        startSinglePointAutoRead();
+        ElMessage.success('已启用自动读取（逐点模式）');
+      }
     } else {
-      await stopAutoRead(routeName.value);
+      await stopAllAutoRead();
       ElMessage.success('已停止自动读取');
+    }
+  };
+
+  /** 模式切换时由模板 `@change` 调用，确保先完全停止再重新启动 */
+  const handleReadModeChange = async () => {
+    if (!isAutoRead.value) return;
+    await stopAllAutoRead();
+    if (readMode.value === 'batch') {
+      await startAutoRead(routeName.value);
+    } else {
+      startSinglePointAutoRead();
     }
   };
 
@@ -119,6 +144,94 @@ export function useAutoRead(options: AutoReadOptions) {
         intervalOptions.value.sort((a, b) => a.value - b.value);
       }
       readInterval.value = numVal;
+    }
+  };
+
+  /** 启动逐点自动读取循环 */
+  const startSinglePointAutoRead = () => {
+    isReading.value = true;
+    cancelRead.value = false;
+    successCount.value = 0;
+    failCount.value = 0;
+    readProgress.value = 0;
+    progressMessage.value = '逐点自动读取中...';
+    doSinglePointReadCycle();
+  };
+
+  /** 停止逐点自动读取 */
+  const stopSinglePointAutoRead = () => {
+    if (singlePointAutoReadTimer) {
+      clearTimeout(singlePointAutoReadTimer);
+      singlePointAutoReadTimer = null;
+    }
+    cancelRead.value = true;
+    isReading.value = false;
+    readProgress.value = 0;
+    successCount.value = 0;
+    failCount.value = 0;
+    progressMessage.value = '';
+  };
+
+  /** 执行一轮逐点读取 */
+  const doSinglePointReadCycle = async () => {
+    if (!isAutoRead.value || cancelRead.value) {
+      stopSinglePointAutoRead();
+      return;
+    }
+
+    try {
+      // 获取测点列表
+      const data = await getDeviceTable(routeName.value, currentSlaveId.value, '', 1, 10000, pointTypes.value);
+      const allRows: any[][] = data.get('table_data') || [];
+      const totalPoints = allRows.length;
+
+      if (totalPoints === 0) {
+        singlePointAutoReadTimer = setTimeout(doSinglePointReadCycle, 2000);
+        return;
+      }
+
+      successCount.value = 0;
+      failCount.value = 0;
+
+      for (let i = 0; i < totalPoints; i++) {
+        if (!isAutoRead.value || cancelRead.value) break;
+
+        const row = allRows[i];
+        const pointCode = row[6];
+        const pointName = row[5];
+        progressMessage.value = `自动读取 [${i + 1}/${totalPoints}] ${pointName}`;
+
+        try {
+          const value = await readSinglePoint(routeName.value, pointCode);
+          if (value !== null) {
+            successCount.value++;
+            // 实时更新表格中的显示值
+            if (tableDataMap.value[currentSlaveId.value]) {
+              const displayRow = tableDataMap.value[currentSlaveId.value].tableData.find(r => r[6] === pointCode);
+              if (displayRow) displayRow[8] = value;
+            }
+          } else {
+            failCount.value++;
+          }
+        } catch (e) {
+          failCount.value++;
+        }
+
+        if (readInterval.value > 0) {
+          await new Promise(resolve => setTimeout(resolve, readInterval.value));
+        }
+        readProgress.value = Math.floor(((i + 1) / totalPoints) * 100);
+      }
+    } catch (e) {
+      console.error('逐点自动读取错误:', e);
+    }
+
+    // 循环下一轮
+    if (isAutoRead.value && !cancelRead.value) {
+      const cycleInterval = Math.max(readInterval.value * 2, 1000);
+      singlePointAutoReadTimer = setTimeout(doSinglePointReadCycle, cycleInterval);
+    } else {
+      stopSinglePointAutoRead();
     }
   };
 
@@ -306,6 +419,7 @@ export function useAutoRead(options: AutoReadOptions) {
     stopAutoRefresh,
     handleAutoReadChange,
     handleIntervalChange,
+    handleReadModeChange,
     handleManualRead,
     fetchAutoReadStatus,
     formatProgress,

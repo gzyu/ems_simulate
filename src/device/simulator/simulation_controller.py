@@ -3,7 +3,7 @@ import time
 from typing import Dict, List, Union
 
 from src.device.simulator.point_simulator import PointSimulator
-from src.enums.point_data import SimulateMethod, Yc, Yx
+from src.enums.point_data import SimulateMethod, Yc, Yx, Yt
 from src.enums.points.change_tracker import ChangeSource, track_change
 from src.device.simulator.log import log
 
@@ -59,7 +59,7 @@ class SimulationController:
                     "reg_addr": point.hex_address,
                     "func_code": point.func_code,
                     "decode_code": point.decode,
-                    "value": point.real_value if isinstance(point, Yc) else point.value,
+                    "value": point.real_value if isinstance(point, (Yc, Yt)) else point.value,
                     "simulate_method": simulator.simulate_method.value,
                     "step": simulator.step,
                     "is_running": simulator.is_running,
@@ -74,18 +74,22 @@ class SimulationController:
                     info["add_coe"] = point.add_coe
                 if hasattr(point, "bit"):
                     info["bit"] = point.bit
+                # 上下限值（Yc/Yt 都有）
+                if hasattr(point, "min_value_limit") and hasattr(point, "max_value_limit"):
+                    info["min_value"] = point.min_value_limit
+                    info["max_value"] = point.max_value_limit
                 return info
         return None
     
     def set_point_simulation_range(self, point_code: str, min_value: float, max_value: float):
         """设置单个点的模拟范围"""
         for point, simulator in self.points.items():
-            if point.code == point_code and isinstance(point, Yc):
+            if point.code == point_code and isinstance(point, (Yc, Yt)):
                 point.min_value_limit = min_value
                 point.max_value_limit = max_value
                 log.info(f"设置点 {point_code} 的模拟范围为 [{min_value}, {max_value}]")
                 return True
-        log.error(f"未找到点 {point_code} 或该点不是遥测值")
+        log.error(f"未找到点 {point_code} 或该点不支持设置模拟范围")
         return False
 
     def start_simulation(self):

@@ -694,6 +694,43 @@ class IEC61850Server:
             self._is_running = False
             log.info("IEC 61850 服务器已停止")
 
+    def restart(self) -> bool:
+        """重启 MMS 服务器，保留 IedModel"""
+        if self._server:
+            try:
+                iec61850.IedServer_stop(self._server)
+                iec61850.IedServer_destroy(self._server)
+            except Exception:
+                pass
+        self._server = None
+        self._is_running = False
+        import time as _time
+        _time.sleep(1)
+        self._server = iec61850.IedServer_create(self._model)
+        if not self._server:
+            log.error("重启失败: IedServer_create 返回空")
+            return False
+        iec61850.IedServer_setServerIdentity(self._server, "EMS", self.model_name, "1.0")
+        try:
+            iec61850.IedServer_setGooseInterfaceId(self._server, self._goose_interface)
+        except Exception:
+            pass
+        try:
+            iec61850.IedServer_enableGoosePublishing(self._server)
+        except Exception:
+            pass
+        self._is_running = True
+        iec61850.IedServer_start(self._server, self.port)
+        if iec61850.IedServer_isRunning(self._server):
+            log.info(f"IEC 61850 服务器重启成功, 端口: {self.port}")
+            self._init_standard_bda_defaults()
+            self._enable_all_goose_cbs()
+            return True
+        else:
+            self._is_running = False
+            log.error(f"IEC 61850 服务器重启失败, 端口: {self.port}")
+            return False
+
     @property
     def is_running(self) -> bool:
         if self._server:

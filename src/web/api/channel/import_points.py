@@ -282,15 +282,16 @@ async def import_icd(
                                     f"创建 Publisher 异常 ({pub_config['go_cb_ref']}): {e}"
                                 )
 
-                        # 创建完 GoCB 后重启 MMS 服务器，使 GSEControlBlock 在数据模型中生效
-                        try:
-                            if iec61850_server and iec61850_server.is_running and created_goose_count > 0:
-                                log.info("重新启动 MMS 服务器以加载 GSEControlBlock...")
-                                iec61850_server.stop()
-                                iec61850_server.start()
-                                log.info("MMS 服务器已重启，GSEControlBlock 已加载到数据模型中")
-                        except Exception as restart_err:
-                            goose_errors.append(f"重启 MMS 服务器加载 GoCB 失败: {restart_err}")
+                        # GoCB 添加到模型后需要重启服务器才能生效
+                        if created_goose_count > 0 and iec61850_server and iec61850_server.is_running:
+                            try:
+                                log.info(f"重启 MMS 服务器以加载 GSEControlBlock ({created_goose_count} 个)...")
+                                if iec61850_server.restart():
+                                    log.info("MMS 服务器重启完成，GoCB 已生效")
+                                else:
+                                    goose_errors.append("MMS 服务器重启失败")
+                            except Exception as restart_err:
+                                goose_errors.append(f"重启 MMS 服务器失败: {restart_err}")
                     else:
                         goose_errors.append("GOOSE 管理器未初始化，无法自动创建 Publisher")
             except Exception as e:

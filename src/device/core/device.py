@@ -12,6 +12,7 @@ Device 类 - 设备模拟器核心类 (Facade)
 - ProtocolHandler: 协议处理
 """
 
+import asyncio
 import time
 from typing import Any, Literal, Union, Optional, Dict, List, Tuple
 
@@ -262,7 +263,31 @@ class Device:
         added_count = 0
         slave_id = 1  # IEC61850 默认使用从机地址 1
 
+        # 收集发现的 GOOSE 控制块，自动创建订阅
+        goose_subs = []
         for dp in discovered_points:
+            if dp.get("_type") == "goose":
+                goose_subs.append(dp)
+
+        if goose_subs:
+            try:
+                from src.proto.iec61850.goose_manager import get_goose_manager
+                gm = get_goose_manager()
+                sub_list = []
+                for g in goose_subs:
+                    sub_list.append({
+                        "go_cb_ref": g.get("go_cb_ref", ""),
+                        "app_id": g.get("app_id"),
+                        "description": f"自动发现: {g.get('data_set_ref', '')}",
+                    })
+                gm.create_receiver(interface="", subscriptions=sub_list)
+                log.info(f"已自动创建 GOOSE 订阅: {len(sub_list)} 个 (interface 为空，启动前请先配置网卡)")
+            except Exception as e:
+                log.warning(f"自动创建 GOOSE 订阅失败: {e}")
+
+        for dp in discovered_points:
+            if dp.get("_type") == "goose":
+                continue
             addr = dp["address"]
             ft = dp["frame_type"]
             ref = dp["ref"]
@@ -368,12 +393,28 @@ class Device:
     # ===== 数据读取（委托给 DataReader） =====
 
     def update_data(self) -> None:
-        """更新设备数据"""
+        """更新设备数据（使用异步批量读取优化）
+
+        自动读取的后台线程调用此方法，改为使用异步批量读取路径：
+        对于 Modbus 客户端会将连续地址合并为一次请求；
+        对于 IEC61850 客户端会按类型分组批量读取；
+        对于服务端和其他协议回退到逐点读取。
+        """
+        try:
+            asyncio.run(self._update_data_async())
+        except Exception as e:
+            if self._logger_initialized:
+                self.log.error(f"update_data error: {e}")
+            else:
+                print(f"update_data error: {e}")
+        time.sleep(0.5)
+
+    async def _update_data_async(self) -> None:
+        """异步批量更新设备数据"""
         for slave_id in self.slave_id_list:
             yc_list = self.yc_dict.get(slave_id, [])
             yx_list = self.yx_dict.get(slave_id, [])
-            self.getSlaveRegisterValues(yc_list, yx_list)
-        time.sleep(1)
+            await self.getSlaveRegisterValuesAsync(yc_list, yx_list)
 
     def getSlaveRegisterValues(
         self, yc_list: List[Yc], yx_list: List[Yx]

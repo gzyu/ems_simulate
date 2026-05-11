@@ -313,6 +313,8 @@ class IEC61850Client:
         self._point_fc: Dict[str, str] = {}
         # 地址 -> iec_type 的映射
         self._point_iec_type: Dict[str, str] = {}
+        # 发现的 GOOSE 控制块列表（与普通测点分开存储）
+        self._discovered_goose_items: List[Dict[str, Any]] = []
 
     def _build_ref(self, address) -> str:
         """根据地址构建 MMS 引用路径
@@ -1176,6 +1178,7 @@ class IEC61850Client:
         log.info("开始 IEC 61850 动态模型发现...")
         start_time = time.time()
         discovered_points: List[Dict[str, Any]] = []
+        self._discovered_goose_items.clear()
 
         # 1. 获取逻辑设备列表
         result = iec61850.IedConnection_getLogicalDeviceList(self._connection)
@@ -1219,8 +1222,7 @@ class IEC61850Client:
                 
                 if not dos:
                     log.warning(f"逻辑节点 {ln_ref} 下没有发现数据对象 (DO 列表为空)")
-                    continue
-                    
+
                 for do in dos:
                     # 注意: 不再跳过 Mod/Beh/Health/NamPlt 等 LLN0 系统 DO
                     # 这些 DO 的 stVal 是 ENC (整型) 而非布尔, 但 read 方法已有整数回退逻辑
@@ -1348,27 +1350,110 @@ class IEC61850Client:
                         log.error(f"解析测点地址失败: {do}, 错误: {e}")
                         continue
 
+                # 4. 对于 LLN0, 发现 GOOSE 控制块 (GoCB)
+                go_cb_names: List[str] = []
+                if ln == "LLN0" and hasattr(iec61850, 'ACSI_CLASS_GoCB'):
+                    try:
+                        gse_result = iec61850.IedConnection_getLogicalNodeDirectory(
+                            self._connection, ln_ref, int(iec61850.ACSI_CLASS_GoCB)
+                        )
+                        gse_list = gse_result[0] if isinstance(gse_result, (list, tuple)) else gse_result
+                        gse_error = gse_result[1] if isinstance(gse_result, (list, tuple)) else 0
+                        if gse_error == iec61850.IED_ERROR_OK and gse_list is not None:
+                            names = self._get_list_from_linked_list(gse_list)
+                            for name in (names or []):
+                                if name and name not in go_cb_names:
+                                    try:
+                                        goena_ref = f"{ln_ref}.{name}.GoEna"
+                                        [_, goena_err] = iec61850.IedConnection_readBooleanValue(
+                                            self._connection, goena_ref, iec61850.IEC61850_FC_GO
+                                        )
+                                        if goena_err == iec61850.IED_ERROR_OK:
+                                            go_cb_names.append(name)
+                                    except Exception:
+                                        pass
+                    except Exception:
+                        pass
+
+                    for cb_name in go_cb_names:
+                        cb_ref = f"{ld}/LLN0.{cb_name}"
+                        app_id = None
+                        dat_set = ""
+                        conf_rev = 0
+                        go_id = ""
+                        if hasattr(iec61850, 'IEC61850_FC_GO'):
+                            try:
+                                appid_ref = f"{cb_ref}.appID"
+                                [value, err] = iec61850.IedConnection_readUnsigned32Value(
+                                    self._connection, appid_ref, iec61850.IEC61850_FC_GO
+                                )
+                                if err == iec61850.IED_ERROR_OK:
+                                    app_id = int(value)
+                            except Exception:
+                                pass
+                            try:
+                                ds_ref = f"{cb_ref}.datSet"
+                                [value, err] = iec61850.IedConnection_readStringValue(
+                                    self._connection, ds_ref, iec61850.IEC61850_FC_GO
+                                )
+                                if err == iec61850.IED_ERROR_OK:
+                                    dat_set = str(value or "")
+                            except Exception:
+                                pass
+                            try:
+                                cr_ref = f"{cb_ref}.confRev"
+                                [value, err] = iec61850.IedConnection_readUnsigned32Value(
+                                    self._connection, cr_ref, iec61850.IEC61850_FC_GO
+                                )
+                                if err == iec61850.IED_ERROR_OK:
+                                    conf_rev = int(value)
+                            except Exception:
+                                pass
+                            try:
+                                gid_ref = f"{cb_ref}.goID"
+                                [value, err] = iec61850.IedConnection_readStringValue(
+                                    self._connection, gid_ref, iec61850.IEC61850_FC_GO
+                                )
+                                if err == iec61850.IED_ERROR_OK:
+                                    go_id = str(value or "")
+                            except Exception:
+                                pass
+
+                        go_cb_ref = f"{ld}/LLN0$GO${cb_name}"
+                        goose_item = {
+                            "_type": "goose",
+                            "go_cb_ref": go_cb_ref,
+                            "go_id": go_id,
+                            "app_id": app_id,
+                            "data_set_ref": dat_set,
+                            "conf_rev": conf_rev,
+                            "name": cb_name,
+                            "ld_inst": ld,
+                        }
+                        discovered_points.append(goose_item)
+                        self._discovered_goose_items.append(goose_item)
+                        log.info(f"发现 GOOSE 控制块: {go_cb_ref}, appID=0x{(app_id or 0):04X}, ds={dat_set}")
+
+                if not go_cb_names:
+                    log.warning(f"LLN0({ln_ref}) 下未发现任何 GoCB (可能服务器不支持 GoCB 浏览)")
+
         log.info(f"IEC 61850 动态发现完成, 耗时: {time.time() - start_time:.2f}s, 发现并映射了 {len(discovered_points)} 个测点")
         return discovered_points
 
     def get_discovered_points(self) -> List[Dict[str, Any]]:
-        """获取当前已映射的测点列表
+        """获取当前已映射的测点列表（含 GOOSE 控制块）
 
         Returns:
             测点列表，每个元素为 {"address": str, "frame_type": int, "ref": str, "code": str, "name": str, "fc": str}
+            GOOSE 控制块带 _type="goose" 标记
         """
         result = []
         for addr, ref in self._point_refs.items():
-            # 从 address 中提取短编码
             code = self._extract_code_from_address(addr)
-            # 获取已注册的 FC
             fc = self._point_fc.get(addr, "")
-            # 获取 iec_type
             iec_type = self._point_iec_type.get(addr, IEC_TYPE_UNKNOWN)
-            # 从 address 提取 DO 名作为 name (如果有 du 会由 discover_model 设置)
             parsed = _parse_ref(addr)
             name = parsed[2] if parsed else code
-            # 从 DA 路径推断 frame_type
             da_path = parsed[3] if parsed else ""
             frame_type = 0
             if da_path:
@@ -1376,8 +1461,10 @@ class IEC61850Client:
                 if top_da in _DA_PATTERNS:
                     frame_type = _DA_PATTERNS[top_da][1]
                 elif top_da in _EXTRA_DA_INFO:
-                    frame_type = 1  # 元数据 DA
+                    frame_type = 1
             result.append({"address": addr, "frame_type": frame_type, "ref": ref, "code": code, "name": name, "fc": fc, "iec_type": iec_type})
+        # 追加发现的 GOOSE 控制块
+        result.extend(self._discovered_goose_items)
         return result
 
     def browse_logical_devices(self) -> List[str]:

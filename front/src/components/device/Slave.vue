@@ -72,54 +72,58 @@
                 inactive-color="#94a3b8"
               />
               
-              <!-- 读取模式和手动读取按钮 -->
-              <div v-if="!isAutoRead" class="manual-read-section">
-                <el-divider direction="vertical" />
-                
-                <!-- 读取模式选择 -->
-                <el-tooltip 
-                  :content="readMode === 'batch' ? '批量读取：合并连续地址，一次性读取多个寄存器（推荐）' : '逐点读取：逐个测点读取，可设置间隔'"
-                  placement="top"
-                >
-                  <el-segmented
-                    v-model="readMode"
-                    :options="readModeOptions"
-                    size="small"
+              <el-divider direction="vertical" />
+              
+              <!-- 读取模式选择 (始终显示) -->
+              <el-tooltip 
+                :content="readMode === 'batch' ? '批量读取：合并连续地址，一次性读取多个寄存器（推荐）' : '逐点读取：逐个测点读取，可设置间隔'"
+                placement="top"
+              >
+                <el-segmented
+                  v-model="readMode"
+                  :options="readModeOptions"
+                  size="small"
+                  @change="handleReadModeChange"
+                />
+              </el-tooltip>
+
+              <!-- 间隔设置 (批量和逐点都支持，始终显示) -->
+              <span class="auto-read-label">间隔</span>
+              <el-select
+                v-model="readInterval"
+                placeholder="间隔"
+                allow-create
+                filterable
+                default-first-option
+                style="width: 90px;"
+                @change="handleIntervalChange"
+                size="normal"
+              >
+                <el-option
+                  v-for="item in intervalOptions"
+                  :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
                   />
-                </el-tooltip>
+                </el-select>
 
-                <!-- 间隔设置 (批量和逐点都支持) -->
-                <span class="auto-read-label">间隔</span>
-                <el-select
-                  v-model="readInterval"
-                  placeholder="间隔"
-                  allow-create
-                  filterable
-                  default-first-option
-                  style="width: 90px;"
-                  @change="handleIntervalChange"
-                  size="normal"
-                >
-                  <el-option
-                    v-for="item in intervalOptions"
-                    :key="item.value"
-                      :label="item.label"
-                      :value="item.value"
-                    />
-                  </el-select>
+              <!-- 手动读取/取消按钮 (仅在非自动读取时显示) -->
+              <el-button
+                v-if="!isAutoRead"
+                :type="isReading ? 'danger' : 'success'"
+                class="modern-btn"
+                :class="isReading ? 'cancel-read-btn' : 'manual-read-btn'"
+                @click="handleManualRead"
+                :icon="isReading ? CircleCloseFilled : Download"
+                :loading="isReading && readMode === 'batch'"
+              >
+                {{ isReading ? '取消' : (readMode === 'batch' ? '批量读取' : '逐点读取') }}
+              </el-button>
 
-                <!-- 手动读取按钮 -->
-                <el-button
-                  :type="isReading ? 'danger' : 'success'"
-                  class="modern-btn"
-                  :class="isReading ? 'cancel-read-btn' : 'manual-read-btn'"
-                  @click="handleManualRead"
-                  :icon="isReading ? CircleCloseFilled : Download"
-                  :loading="isReading && readMode === 'batch'"
-                >
-                  {{ isReading ? '取消' : (readMode === 'batch' ? '批量读取' : '逐点读取') }}
-                </el-button>
-              </div>
+              <!-- 自动读取时显示当前模式 -->
+              <el-tag v-if="isAutoRead" type="info" size="small" effect="plain">
+                {{ readMode === 'batch' ? '批量' : '逐点' }}自动读取中
+              </el-tag>
             </div>
           </div>
         </div>
@@ -539,6 +543,7 @@ const {
   stopAutoRefresh,
   handleAutoReadChange,
   handleIntervalChange,
+  handleReadModeChange,
   handleManualRead,
   fetchAutoReadStatus,
   formatProgress,

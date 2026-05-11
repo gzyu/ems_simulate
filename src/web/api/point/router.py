@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 
 from src.device.core.device import Device
 from src.enums.modbus_def import ProtocolType
-from src.enums.point_data import Yc
+from src.enums.point_data import Yc, Yt
 from src.data.dao.channel_dao import ChannelDao
 from src.web.log import log
 from src.web.api.schemas import (
@@ -69,7 +69,7 @@ async def get_point_limit(req: PointLimitGetRequest, request: Request):
         point = device.get_point_data([req.point_code])
         min_value_limit = 0
         max_value_limit = 1
-        if isinstance(point, Yc):
+        if isinstance(point, (Yc, Yt)):
             max_value_limit = point.max_value_limit
             min_value_limit = point.min_value_limit
         return BaseResponse(

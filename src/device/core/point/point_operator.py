@@ -22,6 +22,15 @@ from src.data.dao.channel_dao import ChannelDao
 if TYPE_CHECKING:
     from src.device.core.device import Device
 
+# Modbus 客户端协议集合: 这些协议下 Yc/Yx 带有 func_code=01/03 的测点允许客户端写入
+_MODBUS_PROTOCOLS = frozenset({
+    ProtocolType.ModbusTcpClient,
+    ProtocolType.ModbusTcp,
+    ProtocolType.ModbusRtu,
+    ProtocolType.ModbusRtuOverTcp,
+    ProtocolType.ModbusUdp,
+})
+
 
 class PointOperator:
     """测点操作器
@@ -80,7 +89,9 @@ class PointOperator:
             raise ValueError(f"未找到测点: {point_code}")
 
         if isinstance(self._handler, ClientHandler) and isinstance(point, (Yc, Yx)):
-            raise ValueError(f"作为客户端时，只允许对遥控(Yk)和遥调(Yt)类测点进行写入操作")
+            # Modbus 协议: func_code=01(读线圈)/03(读保持寄存器) 的 Yc/Yx 允许客户端写入
+            if not (self._device.protocol_type in _MODBUS_PROTOCOLS and getattr(point, 'func_code', None) in (1, 3)):
+                raise ValueError(f"作为客户端时，只允许对遥控(Yk)和遥调(Yt)类测点进行写入操作")
 
         # 如果未指定来源，默认使用 MANUAL
         effective_source = source or ChangeSource.MANUAL
@@ -115,7 +126,9 @@ class PointOperator:
             raise ValueError(f"未找到测点: {point_code}")
 
         if isinstance(self._handler, ClientHandler) and isinstance(point, (Yc, Yx)):
-            raise SystemError(f"作为客户端时，只允许对遥控(Yk)和遥调(Yt)类测点进行操作")
+            # Modbus 协议: func_code=01(读线圈)/03(读保持寄存器) 的 Yc/Yx 允许客户端写入
+            if not (self._device.protocol_type in _MODBUS_PROTOCOLS and getattr(point, 'func_code', None) in (1, 3)):
+                raise SystemError(f"作为客户端时，只允许对遥控(Yk)和遥调(Yt)类测点进行操作")
 
         # 如果未指定来源，默认使用 MANUAL
         effective_source = source or ChangeSource.MANUAL
@@ -330,7 +343,7 @@ class PointOperator:
     ) -> bool:
         """编辑测点限值"""
         point = self._pm.get_point_by_code(point_code)
-        if not point or not isinstance(point, Yc):
+        if not point or not isinstance(point, (Yc, Yt)):
             return False
 
         point.max_value_limit = max_value_limit

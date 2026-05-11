@@ -170,6 +170,7 @@ class IEC61850ClientHandler(ClientHandler):
         self._connecting = False  # 是否正在连接中（防止重复启动）
         self._connect_phase = self.PHASE_IDLE  # 当前连接阶段
         self._connect_progress = 0  # 连接进度 0-100
+        self._discovered_goose_items: List[Dict[str, Any]] = []  # 发现的 GOOSE 控制块
 
     def set_on_points_discovered(self, callback):
         """设置测点发现回调
@@ -264,7 +265,15 @@ class IEC61850ClientHandler(ClientHandler):
         self._client.discover_model()
         self._connect_progress = 80
 
-        # 阶段3: 通知上层发现的测点
+        # 阶段3: 保存发现的 GOOSE 控制块（供结构树展示）
+        if self._client:
+            self._discovered_goose_items.clear()
+            self._discovered_goose_items.extend(self._client._discovered_goose_items)
+            if self._discovered_goose_items and self._log:
+                self._log.info(f"发现 {len(self._discovered_goose_items)} 个 GOOSE 控制块: " +
+                    ", ".join(g.get("go_cb_ref", g.get("name", "")) for g in self._discovered_goose_items))
+
+        # 阶段4: 通知上层发现的测点
         if self._on_points_discovered:
             discovered = self._client.get_discovered_points()
             if discovered:
@@ -311,6 +320,7 @@ class IEC61850ClientHandler(ClientHandler):
         self._connecting = False
         self._connect_phase = self.PHASE_IDLE
         self._connect_progress = 0
+        self._discovered_goose_items = []
         if self._client:
             self._client.disconnect()
         self._is_running = False

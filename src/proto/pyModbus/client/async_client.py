@@ -442,9 +442,9 @@ class AsyncModbusClient:
                 registers[0] = ((registers[0] & 0xFF) << 8) | ((registers[0] >> 8) & 0xFF)
 
         # 写入寄存器值
-        if func_code in [5, 15]:  # 线圈操作
+        if func_code in [1, 5, 15]:  # 线圈操作 (01 读线圈也可转写)
             return await self.write_coils(slave_id, address, [bool(v) for v in registers])
-        elif func_code in [6, 16]:  # 寄存器操作
+        elif func_code in [3, 6, 16]:  # 寄存器操作 (03 读保持寄存器也可转写)
             if func_code == 6 and len(registers) == 1:
                 return await self.write_register(slave_id, address, registers[0])
             else:

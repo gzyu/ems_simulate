@@ -513,20 +513,30 @@ async def get_iec61850_structure(body: Iec61850StructureRequest, request: Reques
                     lns = server.browse_logical_nodes(ld) if hasattr(server, 'browse_logical_nodes') else []
                     data_model.append({"name": ld, "children": lns})
 
-        # 获取 GOOSE 信息
+        # 获取 GOOSE 信息（本机发布者）
         goose_items = []
         goose_manager = getattr(request.app.state, 'goose_manager', None)
         if goose_manager:
             try:
                 goose_status = goose_manager.get_all_status()
-                # 列出所有 Publisher
                 for pub in goose_status.get("publishers", []):
                     goose_items.append(f"Pub: {pub.get('go_cb_ref', '')} ({'运行' if pub.get('is_running') else '停止'})")
-                # 列出所有 Receiver
                 for recv in goose_status.get("receivers", []):
                     goose_items.append(f"Recv: {recv.get('interface', '')} ({'运行' if recv.get('is_running') else '停止'})")
             except Exception as e:
-                log.warning(f"获取 GOOSE 状态失败: {e}")
+                log.warning(f"获取本机 GOOSE 状态失败: {e}")
+
+        # 如果是客户端设备，补充远端发现的 GOOSE 控制块
+        if device and hasattr(device, 'protocol_handler') and device.protocol_handler:
+            protocol_handler = device.protocol_handler
+            discovered_goose = getattr(protocol_handler, '_discovered_goose_items', None)
+            if discovered_goose:
+                for g in discovered_goose:
+                    cb_ref = g.get("go_cb_ref", "")
+                    app_id = g.get("app_id")
+                    app_id_str = f"0x{app_id:04X}" if app_id is not None else ""
+                    status = "已发现"
+                    goose_items.append(f"远端GoCB: {cb_ref} ({status}, APPID={app_id_str})")
 
         structure = {
             "GOOSE": goose_items, "Reports": [], "SettingGroups": [],
