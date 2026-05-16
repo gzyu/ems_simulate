@@ -28,6 +28,7 @@ export const CHANNEL_API = {
   IEC61850_TREE_DATA: '/api/channels/iec61850-tree-data',
   IEC61850_READ_POINT: '/api/channels/iec61850-read-point',
   IEC61850_WRITE_POINT: '/api/channels/iec61850-write-point',
+  IEC61850_DATASET_DETAIL: '/api/channels/iec61850-dataset-detail',
 } as const;
 
 // ===== 设备相关 =====

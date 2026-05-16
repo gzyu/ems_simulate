@@ -161,6 +161,7 @@
           :protocolType="protocolType"
           :isIec61850="isIec61850"
           :iec61850TreeData="iec61850TreeData"
+          :iec61850Category="iec61850Category"
           :channelId="channelId"
           @update:pageSize="handlePageSizeChange"
           @update:pageIndex="handlePageIndexChange"

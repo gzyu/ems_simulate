@@ -11,6 +11,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 from .log import log
+from .iec61850_defs import ALL_LN_CLASSES
 
 try:
     from pyiec61850 import pyiec61850 as iec61850
@@ -63,6 +64,53 @@ def _parse_ref(address: str):
         return (ld_inst, ln_name, do_name, da_path)
     except Exception:
         return None
+
+
+def _split_ln_name(ln_name: str) -> Tuple[str, str]:
+    """将完整 LN 名称拆分为 (ln_class, ln_inst)
+
+    IEC 61850 LN 命名格式: [prefix]{lnClass}[inst]
+    例如: "MMCL4" → ("MMCL", "4")
+          "M0GGIO1" → ("GGIO", "1")    # prefix=M0, class=GGIO, inst=1
+          "LLN0" → ("LLN0", "")
+          "MMXU1" → ("MMXU", "1")
+
+    Args:
+        ln_name: 完整 LN 名称
+
+    Returns:
+        (ln_class, ln_inst) 元组
+    """
+    if not ln_name:
+        return ("", "")
+    if ln_name == "LLN0":
+        return ("LLN0", "")
+
+    # 方法1: 从字母部分提取已知 LN class（处理含前缀的情况如 "M0GGIO1"）
+    alpha = ''.join(c for c in ln_name if c.isalpha())
+    known_class = None
+    if alpha in ALL_LN_CLASSES:
+        known_class = alpha
+    else:
+        for i in range(1, len(alpha)):
+            suffix = alpha[i:]
+            if suffix in ALL_LN_CLASSES:
+                known_class = suffix
+                break
+
+    if known_class:
+        idx = ln_name.find(known_class)
+        if idx >= 0:
+            inst_part = ln_name[idx + len(known_class):]
+            return (known_class, inst_part)
+
+    # 方法2: 回退 - 按最后一个字母/数字边界拆分
+    import re
+    match = re.match(r'^(\D+)(\d*)$', ln_name)
+    if match:
+        return (match.group(1), match.group(2))
+
+    return (ln_name, "")
 
 
 class IEC61850Server:
@@ -136,11 +184,14 @@ class IEC61850Server:
         # 集成 GOOSE 发布配置
         self._goose_interface: str = "eth0"          # GOOSE 网络接口
         self._goose_cb_list: List[Dict[str, Any]] = []  # 跟踪已注册的 GoCB 条目
+        # DataSet 信息目录（用于前端结构树展示）
+        # 每个元素: {ref, name, ld, member_count, members: [{ref, fc, iec_type}]}
+        self._dataset_catalog: List[Dict[str, Any]] = []
 
-        # 标准子 DA (q.validity, q.source, t.seconds 等) 引用列表，
+        # 标准 DA (q, t, dU) 引用列表，
         # 用于服务器启动后初始化默认值，避免 IED Scout 因值为空显示红色感叹号
-        # 每个元素: (da_object, bda_name, iec_type_str)
-        # iec_type_str: "int32", "boolean", "uint32"
+        # 每个元素: (da_object, da_name, iec_type_str)
+        # iec_type_str: "quality", "timestamp", "string"
         self._standard_bda_list: List[tuple] = []
 
         # 保持底层 C 对象的 Python 引用，防止被垃圾回收导致崩溃
@@ -397,7 +448,7 @@ class IEC61850Server:
                 if existing_da is not None:
                     # DA 已存在, 复用
                     da = existing_da
-                    log.debug(f"IEC61850 DA 已存在, 复用: {part_key}")
+                    # log.debug(f"IEC61850 DA 已存在, 复用: {part_key}")
                 else:
                     da = iec61850.DataAttribute_create(
                         part, iec61850.toModelNode(parent),
@@ -555,52 +606,32 @@ class IEC61850Server:
         qt_fc_const = self._resolve_fc_const(qt_fc)
         dc_fc_const = self._resolve_fc_const("DC")
 
-        # --- 1. q (品质) - 结构体 ---
-        # IEC 61850-7-3: 品质包含 Validity、Quality Details(detailQuality)、Source、Test、OperatorBlocked
+        # --- 1. q (品质) - 单值 DataAttribute ---
+        # IEC 61850 MMS 映射: Quality 映射为单个 BitString (13位),
+        # 而非结构体。.NET IEC61850Lib 客户端期望 q 是单个值，
+        # 若服务端返回结构体则 SetValueFromMmsDataObj 会 NullReferenceException。
         q_key = f"{do_key}.q"
-        if q_key not in self._do_map and qt_fc_const:
-            q_obj = iec61850.DataObject_create("q", iec61850.toModelNode(do_obj), 0)
-            self._do_map[q_key] = q_obj
-            self._keep_alive.append(q_obj)
+        if q_key not in self._da_map and qt_fc_const:
+            q_da = iec61850.DataAttribute_create(
+                "q", iec61850.toModelNode(do_obj),
+                iec61850.IEC61850_QUALITY, qt_fc_const, 0, 0, 0
+            )
+            self._da_map[q_key] = q_da
+            self._keep_alive.append(q_da)
+            self._standard_bda_list.append((q_da, "q", "quality"))
 
-            # q 的子 BDA: Validity、Quality Details、Source、Test、OperatorBlocked
-            # Quality Details (detailQuality) 的各项作为叶子 BDA 直接挂载在 q 下
-            for bda_name, bda_type, iec_type_str in [
-                ("validity", iec61850.IEC61850_INT32, "int32"),
-                ("detailQuality", iec61850.IEC61850_INT32U, "uint32"),
-                ("source", iec61850.IEC61850_INT32, "int32"),
-                ("operatorBlocked", iec61850.IEC61850_BOOLEAN, "boolean"),
-                ("test", iec61850.IEC61850_BOOLEAN, "boolean"),
-            ]:
-                bda = iec61850.DataAttribute_create(
-                    bda_name, iec61850.toModelNode(q_obj),
-                    bda_type, qt_fc_const, 0, 0, 0
-                )
-                self._keep_alive.append(bda)
-                self._standard_bda_list.append((bda, bda_name, iec_type_str))
-
-        # --- 2. t (时标) - 结构体 ---
-        # IEC 61850-7-2: 时标包含 seconds, fraction, 以及时间质量字段
+        # --- 2. t (时标) - 单值 DataAttribute ---
+        # IEC 61850 MMS 映射: Timestamp 映射为单个 UTC_Time,
+        # 而非包含 seconds/fraction 等子 BDA 的结构体。
         t_key = f"{do_key}.t"
-        if t_key not in self._do_map and qt_fc_const:
-            t_obj = iec61850.DataObject_create("t", iec61850.toModelNode(do_obj), 0)
-            self._do_map[t_key] = t_obj
-            self._keep_alive.append(t_obj)
-
-            for bda_name, bda_type, iec_type_str in [
-                ("seconds", iec61850.IEC61850_INT32, "int32"),
-                ("fraction", iec61850.IEC61850_INT32U, "uint32"),
-                ("LeapSecondsKnown", iec61850.IEC61850_BOOLEAN, "boolean"),
-                ("ClockedFailure", iec61850.IEC61850_BOOLEAN, "boolean"),
-                ("ClockNotSynchronized", iec61850.IEC61850_BOOLEAN, "boolean"),
-                ("TimeAccuracy", iec61850.IEC61850_INT32U, "uint32"),
-            ]:
-                bda = iec61850.DataAttribute_create(
-                    bda_name, iec61850.toModelNode(t_obj),
-                    bda_type, qt_fc_const, 0, 0, 0
-                )
-                self._keep_alive.append(bda)
-                self._standard_bda_list.append((bda, bda_name, iec_type_str))
+        if t_key not in self._da_map and qt_fc_const:
+            t_da = iec61850.DataAttribute_create(
+                "t", iec61850.toModelNode(do_obj),
+                iec61850.IEC61850_TIMESTAMP, qt_fc_const, 0, 0, 0
+            )
+            self._da_map[t_key] = t_da
+            self._keep_alive.append(t_da)
+            self._standard_bda_list.append((t_da, "t", "timestamp"))
 
         # --- 3. dU (描述) - 可见字符串 ---
         du_key = f"{do_key}.dU"
@@ -614,37 +645,37 @@ class IEC61850Server:
             self._keep_alive.append(du_da)
 
     def _init_standard_bda_defaults(self):
-        """初始化标准子 DA 的默认值
+        """初始化标准 DA 的默认值
 
-        在服务器启动后调用，为所有 q/t/detailQuality 的子 DA 设置默认初始值，
+        在服务器启动后调用，为所有 q(品质) 和 t(时标) 设置默认初始值，
         避免 IED Scout 等客户端读取时因值为空显示红色感叹号。
+
+        q 使用 IedServer_updateQuality 设置品质位 (0 = GOOD)
+        t 使用 IedServer_updateUTCTimeAttributeValue 设置当前时间
         """
         if not self._server or not self._is_running:
             return
 
         import time as time_module
-        now_seconds = int(time_module.time())
+        now_ms = int(time_module.time() * 1000)
 
         for da, name, iec_type in self._standard_bda_list:
             try:
-                if iec_type == "int32":
-                    # validity → 0 (good), source → 0 (process)
-                    iec61850.IedServer_updateInt32AttributeValue(
+                if iec_type == "quality":
+                    # 品质: 0 表示 validity=GOOD, 无标志位
+                    iec61850.IedServer_updateQuality(
                         self._server, da, 0
                     )
-                elif iec_type == "boolean":
-                    # test → False, operatorBlocked → False,
-                    # detailQuality BDAs → False,
-                    # LeapSecondsKnown → False, ClockedFailure → False,
-                    # ClockNotSynchronized → False
-                    iec61850.IedServer_updateBooleanAttributeValue(
-                        self._server, da, False
+                elif iec_type == "timestamp":
+                    # 时标: 当前 UTC 时间 (毫秒)
+                    iec61850.IedServer_updateUTCTimeAttributeValue(
+                        self._server, da, now_ms
                     )
-                elif iec_type == "uint32":
-                    # TimeAccuracy → 0
-                    iec61850.IedServer_updateUnsignedAttributeValue(
-                        self._server, da, 0
-                    )
+                elif iec_type == "string":
+                    if hasattr(iec61850, 'IedServer_updateStringAttributeValue'):
+                        iec61850.IedServer_updateStringAttributeValue(
+                            self._server, da, ""
+                        )
             except Exception as e:
                 log.warning(
                     f"初始化标准 DA 默认值失败: {name}({iec_type}), error={e}"
@@ -747,6 +778,11 @@ class IEC61850Server:
             return "float"
         if leaf in ("ctlVal", "setVal", "wVal") and parent in ("APC", "setMag"):
             return "float"
+        # q 和 t 作为单值 DataAttribute
+        if leaf == "q":
+            return "quality"
+        if leaf == "t":
+            return "timestamp"
         if leaf in ("stVal", "ctlVal", "subEna", "blkEna",
                      "LeapSecondsKnown", "ClockedFailure", "ClockNotSynchronized"):
             return "boolean"
@@ -803,6 +839,18 @@ class IEC61850Server:
                     value = iec61850.IedServer_getStringAttributeValue(self._server, da)
                     return str(value).strip() if value else ""
                 return ""
+            elif iec_type == "quality":
+                # 品质值: 返回整数位串
+                if hasattr(iec61850, 'IedServer_getUnsignedAttributeValue'):
+                    value = iec61850.IedServer_getUnsignedAttributeValue(self._server, da)
+                    return int(value) if value is not None else 0
+                return 0
+            elif iec_type == "timestamp":
+                # 时标值: 返回毫秒级 UTC 时间戳
+                if hasattr(iec61850, 'IedServer_getUTCTimeAttributeValue'):
+                    value = iec61850.IedServer_getUTCTimeAttributeValue(self._server, da)
+                    return int(value) if value is not None else 0
+                return 0
             else:
                 # unknown: 自动探测 - 先尝试浮点, 再布尔, 再整数
                 try:
@@ -880,6 +928,16 @@ class IEC61850Server:
             elif iec_type == "boolean":
                 iec61850.IedServer_updateBooleanAttributeValue(
                     self._server, da, bool(value)
+                )
+            elif iec_type == "quality":
+                # 品质值: 整数位串
+                iec61850.IedServer_updateQuality(
+                    self._server, da, int(value)
+                )
+            elif iec_type == "timestamp":
+                # 时标值: 毫秒级 UTC 时间戳
+                iec61850.IedServer_updateUTCTimeAttributeValue(
+                    self._server, da, int(value)
                 )
             else:
                 # unknown: 根据 value 类型选择
@@ -1056,7 +1114,46 @@ class IEC61850Server:
             else:
                 self._keep_alive.append(data_set)
                 # 为 DataSet 添加 FCDA 条目
-                self._add_fcda_entries_to_dataset(data_set, entries, ld_inst)
+                added_entries = self._add_fcda_entries_to_dataset(data_set, entries, ld_inst)
+
+                # 记录 DataSet 到目录（供前端结构树展示）
+                # 无论 FCDA 是否实际写入 MMS 模型，都记录条目信息供前端展示
+                ds_members = []
+                if entries:
+                    entry_to_fc_map = {
+                        "stVal": "ST", "ctlVal": "CO", "mag.f": "MX",
+                        "mag": "MX", "f": "MX", "q": "MX", "t": "MX",
+                        "dU": "DC", "setVal": "CO",
+                    }
+                    type_to_fc_map = {
+                        "boolean": "ST", "float": "MX",
+                        "integer": "ST", "string": "DC",
+                    }
+                    for entry in entries:
+                        entry_ref = entry.get("name", "")
+                        entry_iec_type = entry.get("iec_type", "")
+                        entry_fc = type_to_fc_map.get(entry_iec_type, "")
+                        if not entry_fc and "/" in entry_ref:
+                            da_part = entry_ref.rsplit(".", 1)[-1] if "." in entry_ref else ""
+                            entry_fc = entry_to_fc_map.get(da_part, "MX")
+                        ds_members.append({
+                            "ref": entry_ref,
+                            "fc": entry_fc or "MX",
+                            "iec_type": entry_iec_type,
+                        })
+                # 从 data_set_ref 中提取 LN: "LD0/LLN0$dsGOOSE1" -> "LLN0"
+                ds_ln = ""
+                if "$" in data_set_ref:
+                    ref_ln_part = data_set_ref.split("/")[-1] if "/" in data_set_ref else data_set_ref
+                    ds_ln = ref_ln_part.split("$")[0]
+                self._dataset_catalog.append({
+                    "ref": data_set_ref,
+                    "name": ds_name,
+                    "ld": ld_inst,
+                    "ln": ds_ln,
+                    "member_count": len(ds_members),
+                    "members": ds_members,
+                })
 
             # 2. 创建 GSEControlBlock (标准 libIEC61850 GoCB)
             app_id_str = f"{app_id:04X}" if isinstance(app_id, int) else str(app_id)
@@ -1095,6 +1192,113 @@ class IEC61850Server:
             log.error(f"添加 GSEControlBlock 失败: {e}", exc_info=True)
             return False
 
+    def register_dataset(
+        self,
+        ld_inst: str,
+        ds_name: str,
+        data_set_ref: str,
+        entries: Optional[List[Dict[str, Any]]] = None,
+        dataset_catalog: Optional[List[Dict[str, Any]]] = None,
+    ) -> bool:
+        """注册 DataSet 并在 MMS 模型中创建真实数据集
+
+        用于 ICD 导入时注册不带 GSEControlBlock 的 DataSet。
+        在 LLN0 下创建 DataSet 对象并添加 FCDA 条目，
+        使 MMS 客户端可以发现和浏览数据集。
+
+        Args:
+            ld_inst: 逻辑设备实例名
+            ds_name: DataSet 名称
+            data_set_ref: DataSet 引用路径 (如 "CTMP01/LLN0$dsRack1CellTemp")
+            entries: 条目列表，每个条目含 name(fcda_ref), iec_type
+            dataset_catalog: 外部 catalog 列表（如 import 流程中传入），
+                            为 None 时使用 self._dataset_catalog
+
+        Returns:
+            是否成功
+        """
+        if not self._model:
+            log.warning(f"register_dataset [{ds_name}]: 模型未初始化")
+            return False
+
+        lln0_key = f"{ld_inst}/LLN0"
+        lln0 = self._ln_map.get(lln0_key)
+        log.info(f"register_dataset [{ds_name}]: 查找 LLN0 key={lln0_key}, found={lln0 is not None}, ld_inst={ld_inst}, self.ld_name={self.ld_name}")
+        if lln0 is None:
+            if ld_inst == self.ld_name:
+                self._ensure_base_ld()
+                lln0 = self._lln0
+        if not lln0:
+            log.warning(f"无法注册 DataSet: LLN0 未找到 (ld_inst={ld_inst})")
+            return False
+
+        try:
+            # 在 MMS 模型中创建真实的 DataSet
+            data_set = iec61850.DataSet_create(ds_name, lln0)
+            if not data_set:
+                log.warning(f"register_dataset [{ds_name}]: DataSet_create 失败")
+                return False
+
+            self._keep_alive.append(data_set)
+
+            # 为 DataSet 添加 FCDA 条目
+            added_entries = self._add_fcda_entries_to_dataset(data_set, entries, ld_inst)
+
+            # 记录 DataSet 到目录（供前端结构树展示）
+            ds_members = []
+            if entries:
+                entry_to_fc_map = {
+                    "stVal": "ST", "ctlVal": "CO", "mag.f": "MX",
+                    "mag": "MX", "f": "MX", "q": "MX", "t": "MX",
+                    "dU": "DC", "setVal": "CO",
+                }
+                type_to_fc_map = {
+                    "boolean": "ST", "float": "MX",
+                    "integer": "ST", "string": "DC",
+                }
+                for entry in entries:
+                    entry_ref = entry.get("name", "")
+                    entry_iec_type = entry.get("iec_type", "")
+                    entry_fc = type_to_fc_map.get(entry_iec_type, "")
+                    if not entry_fc and "/" in entry_ref:
+                        da_part = entry_ref.rsplit(".", 1)[-1] if "." in entry_ref else ""
+                        entry_fc = entry_to_fc_map.get(da_part, "MX")
+                    ds_members.append({
+                        "ref": entry_ref,
+                        "fc": entry_fc or "MX",
+                        "iec_type": entry_iec_type,
+                    })
+
+            # 从 data_set_ref 中提取 LN
+            ds_ln = ""
+            if "$" in data_set_ref:
+                ref_ln_part = data_set_ref.split("/")[-1] if "/" in data_set_ref else data_set_ref
+                ds_ln = ref_ln_part.split("$")[0]
+
+            catalog_item = {
+                "ref": data_set_ref,
+                "name": ds_name,
+                "ld": ld_inst,
+                "ln": ds_ln,
+                "member_count": len(ds_members),
+                "members": ds_members,
+            }
+
+            # 写入 catalog
+            catalog = dataset_catalog if dataset_catalog is not None else self._dataset_catalog
+            catalog.append(catalog_item)
+
+            log.info(
+                f"DataSet 已注册到 MMS 模型: "
+                f"name={ds_name}, ld={ld_inst}, "
+                f"ref={data_set_ref}, members={len(ds_members)}, "
+                f"fcda_added={added_entries}"
+            )
+            return True
+        except Exception as e:
+            log.error(f"注册 DataSet 失败: {e}", exc_info=True)
+            return False
+
     def _add_fcda_entries_to_dataset(
         self,
         data_set,
@@ -1103,9 +1307,32 @@ class IEC61850Server:
     ) -> int:
         """向 DataSet 添加 FCDA 条目，使客户端可发现数据集中的成员
 
+        使用 DataSetEntry_create 为每个 FCDA 引用创建条目。
+        DataSetEntry_create(dataSet, variable, index, component) 参数:
+          - dataSet: DataSet 对象
+          - variable: MMS 变量名格式引用 (使用 $ 分隔符)
+          - index: 在数据集中的索引位置
+          - component: 组件名 (None 表示无子组件)
+
+        重要:
+        1. variable 参数必须使用 MMS 变量名格式，而非 IEC 61850 对象引用格式！
+           - IEC 61850 对象引用: "CTMP01/GGIO1.Ind1.stVal" (用 . 分隔)
+           - MMS 变量名:         "CTMP01/GGIO1$ST$Ind1$stVal" (用 $ 分隔)
+        2. FCDA 引用的 LN/DO/DA 节点必须已存在于数据模型中。
+        3. variable 中 "/" 前面必须是 LD 实例名 (不含 IED 前缀！)，
+           因为 libIEC61850 的 createDataSets() 会自动拼接
+           iedModel->name + logicalDeviceName 来查找 MMS 域名。
+           若误用完整 MMS 域名 (如 "EMSDeviceCTMP01")，拼接后
+           变为 "EMSDeviceEMSDeviceCTMP01"，导致域名查找失败，
+           accessSpecifier.domain=NULL，客户端请求时崩溃。
+
+        variable 格式:
+          - 含 LD:  "{LD_inst}/{LN_name}${FC}${DO_name}${DA_path}"
+          - 不含 LD: "{LN_name}${FC}${DO_name}${DA_path}"
+
         Args:
             data_set: pyiec61850 DataSet 对象
-            entries: 条目列表，每个条目含 name(fcda_ref), iec_type
+            entries: 条目列表，每个条目含 name(fcda_ref), iec_type, fc(可选)
             default_ld_inst: 默认 LD 实例名（当 FCDA 引用不包含 LD 时使用）
 
         Returns:
@@ -1114,122 +1341,98 @@ class IEC61850Server:
         if not entries:
             return 0
 
-        # FC 字符串 -> pyiec61850 常量映射
-        fc_str_to_const = {
-            "MX": getattr(iec61850, "IEC61850_FC_MX", None),
-            "ST": getattr(iec61850, "IEC61850_FC_ST", None),
-            "CO": getattr(iec61850, "IEC61850_FC_CO", None),
-            "CF": getattr(iec61850, "IEC61850_FC_CF", None),
-            "DC": getattr(iec61850, "IEC61850_FC_DC", None),
-            "SP": getattr(iec61850, "IEC61850_FC_SP", None),
-            "SV": getattr(iec61850, "IEC61850_FC_SV", None),
-            "SG": getattr(iec61850, "IEC61850_FC_SG", None),
-            "SR": getattr(iec61850, "IEC61850_FC_SR", None),
-            "OR": getattr(iec61850, "IEC61850_FC_OR", None),
-            "BL": getattr(iec61850, "IEC61850_FC_BL", None),
-            "MX": getattr(iec61850, "IEC61850_FC_MX", None),
-        }
-
-        # 类型 -> FC 推断映射
-        iec_type_to_fc = {
-            "boolean": "ST",
-            "float": "MX",
-            "integer": "ST",
-            "string": "DC",
-        }
-
-        # 根据 DA 名称推断 FC
+        # DA 名称到 FC 的映射表
         da_to_fc = {
-            "stVal": "ST", "ctlVal": "CO", "mag": "MX",
-            "f": "MX", "q": "MX", "t": "MX", "dU": "DC",
-            "setVal": "CO", "setMag": "MX",
-            "seconds": "MX", "fraction": "MX",
+            "stVal": "ST", "ctlVal": "CO", "Oper": "CO", "SBOw": "CO",
+            "Cancel": "CO", "origin": "CO", "setVal": "CO",
+            "dU": "DC", "cmdQual": "CO",
+        }
+        # iec_type 到 FC 的映射表
+        type_to_fc = {
+            "boolean": "ST", "float": "MX", "integer": "ST",
+            "string": "DC", "bitstring": "ST", "timestamp": "ST",
+        }
+        # iec_type 到 frame_type 的映射 (用于 _add_point_from_ref)
+        type_to_frame = {
+            "float": 0, "boolean": 1, "integer": 1,
+            "string": 1, "bitstring": 1, "timestamp": 1,
         }
 
         added_count = 0
 
-        for entry in entries:
+        for idx, entry in enumerate(entries):
             try:
                 fcda_ref = entry.get("name", "")
                 if not fcda_ref:
                     continue
 
-                # 解析 FCDA 引用: "LD0/LLN0.GoCB1.stVal"
-                # 格式: {ld_inst}/{ln_name}.{do_name}.{da_name}
-                parsed = _parse_ref(fcda_ref)
-                if not parsed:
-                    log.warning(f"FCDA: 无法解析引用路径: {fcda_ref}, 跳过")
-                    continue
-
-                fcda_ld, fcda_ln, fcda_do, fcda_da = parsed
-                if not fcda_do:
-                    continue
-
-                # 推断 FC
-                fc_str = None
-                iec_type = entry.get("iec_type", "")
-                if iec_type and iec_type in iec_type_to_fc:
-                    fc_str = iec_type_to_fc[iec_type]
-                if not fc_str:
-                    # 从 DA 名称推断
-                    da_first = fcda_da.split(".")[0] if fcda_da else ""
-                    fc_str = da_to_fc.get(da_first)
-                if not fc_str:
-                    fc_str = "MX"  # 默认
-
-                fc_const = fc_str_to_const.get(fc_str)
-                if fc_const is None:
-                    fc_const = iec61850.IEC61850_FC_MX
-
-                # 尝试通过不同的 API 添加 FCDA 条目
-                entry_added = False
-
-                # 方法 1: Fcda_create + DataSet_addEntry (标准 API)
-                if hasattr(iec61850, "Fcda_create") and hasattr(iec61850, "DataSet_addEntry"):
-                    try:
-                        fcda_obj = iec61850.Fcda_create(
-                            fcda_ld, "", fcda_ln, "",
-                            fcda_do, fcda_da, fc_const,
-                        )
-                        if fcda_obj:
-                            iec61850.DataSet_addEntry(data_set, fcda_obj)
-                            entry_added = True
-                    except Exception as api_err:
-                        log.debug(f"Fcda_create/DataSet_addEntry 失败: {api_err}")
-
-                # 方法 2: DataSet_addEntry 只接受引用字符串
-                if not entry_added and hasattr(iec61850, "DataSet_addEntry"):
-                    try:
-                        # 构造 FCDA 引用字符串
-                        ref_parts = [fcda_ld, fcda_ln]
-                        if fcda_do:
-                            ref_parts.append(fcda_do)
-                        if fcda_da:
-                            ref_parts.append(fcda_da)
-                        fcda_ref_str = "/".join(ref_parts[:2]) + "." + ".".join(ref_parts[2:])
-                        iec61850.DataSet_addEntry(data_set, fcda_ref_str)
-                        entry_added = True
-                    except Exception as api_err:
-                        log.debug(f"DataSet_addEntry(字符串) 失败: {api_err}")
-
-                # 方法 3: DataSet_addFcda
-                if not entry_added and hasattr(iec61850, "DataSet_addFcda"):
-                    try:
-                        iec61850.DataSet_addFcda(
-                            data_set, fcda_ld, "",
-                            fcda_ln, "", fcda_do, fcda_da, fc_const,
-                        )
-                        entry_added = True
-                    except Exception as api_err:
-                        log.debug(f"DataSet_addFcda 失败: {api_err}")
-
-                if entry_added:
-                    added_count += 1
+                # 解析 FCDA 引用，提取 LD 和 LN.DO.DA 部分
+                # FCDA 引用格式: "LD0/GGIO1.Ind1.stVal" 或 "GGIO1.Ind1.stVal"
+                if "/" in fcda_ref:
+                    slash_idx = fcda_ref.index("/")
+                    ld_part = fcda_ref[:slash_idx]
+                    rest_part = fcda_ref[slash_idx + 1:]
                 else:
-                    log.warning(
-                        f"无法为 DataSet 添加 FCDA 条目: {fcda_ref} "
-                        f"(当前 pyiec61850 版本可能不支持 DataSet_addEntry API)"
+                    ld_part = default_ld_inst
+                    rest_part = fcda_ref
+
+                # 解析 rest_part: "LN.DO.DA[.DA...]" → 构建为 MMS 变量名格式
+                dot_idx = rest_part.find(".")
+                if dot_idx > 0:
+                    ln_name = rest_part[:dot_idx]
+                    do_da_part = rest_part[dot_idx + 1:]  # "DO.DA[.DA...]"
+
+                    # 确定 FC: 优先使用 entry 中显式指定的 FC
+                    fc = entry.get("fc", "")
+                    if not fc:
+                        # 从 DA 名称推断 FC
+                        da_name = do_da_part.rsplit(".", 1)[-1] if "." in do_da_part else do_da_part
+                        fc = da_to_fc.get(da_name, "")
+                    if not fc:
+                        # 从 iec_type 推断 FC
+                        fc = type_to_fc.get(entry.get("iec_type", ""), "")
+                    if not fc:
+                        # 默认使用 MX
+                        fc = "MX"
+
+                    # === 确保 LN/DO/DA 节点存在于数据模型中 ===
+                    # IedServer_create 构建命名空间时会验证 DataSetEntry 引用，
+                    # 若引用的 MMS 变量不存在则静默丢弃该条目。
+                    # 因此必须先创建模型节点，再创建 DataSetEntry。
+                    self._ensure_fcda_model_nodes(
+                        ld_part, ln_name, do_da_part, fc, entry.get("iec_type", "")
                     )
+
+                    # 构建 MMS 变量名格式引用 (使用 $ 分隔符)
+                    # DataSetEntry_create 的 variable 参数中，"/" 前面是 LD 实例名
+                    # (不含 IED 前缀)，libIEC61850 的 createDataSets() 会自动拼接
+                    # iedModel->name + logicalDeviceName 来查找 MMS 域名。
+                    # 例如: variable="CTMP01/GGIO1$ST$Ind1$stVal"
+                    #   → logicalDeviceName="CTMP01"
+                    #   → createDataSets 查找域名: "EMSDevice"+"CTMP01"="EMSDeviceCTMP01"
+                    # 注意: 若 logicalDeviceName 已含 IED 前缀 (如 "EMSDeviceCTMP01")，
+                    # 则拼接后变为 "EMSDeviceEMSDeviceCTMP01"，域名查找失败，
+                    # accessSpecifier.domain=NULL，客户端请求时导致空指针崩溃！
+                    do_da_mms = do_da_part.replace(".", "$")
+                    variable_ref = f"{ld_part}/{ln_name}${fc}${do_da_mms}"
+                else:
+                    # 只有 LN 名，没有 DO/DA（异常情况，跳过）
+                    log.debug(f"FCDA 引用缺少 DO/DA: {fcda_ref}")
+                    continue
+
+                log.debug(f"DataSetEntry variable_ref: {variable_ref} (fcda_ref={fcda_ref}, fc={fc})")
+
+                try:
+                    ds_entry = iec61850.DataSetEntry_create(
+                        data_set, variable_ref, idx, None
+                    )
+                    if ds_entry:
+                        self._keep_alive.append(ds_entry)
+                        added_count += 1
+                    else:
+                        log.debug(f"DataSetEntry_create 返回空: {variable_ref}")
+                except Exception as create_err:
+                    log.debug(f"DataSetEntry_create 失败: {variable_ref}, error={create_err}")
 
             except Exception as e:
                 log.debug(f"添加 FCDA 条目异常: {e}")
@@ -1244,6 +1447,141 @@ class IEC61850Server:
             )
 
         return added_count
+
+    def _ensure_fcda_model_nodes(
+        self,
+        ld_inst: str,
+        ln_name: str,
+        do_da_path: str,
+        fc: str,
+        iec_type: str,
+    ) -> None:
+        """确保 FCDA 引用的 LN/DO/DA 节点存在于数据模型中
+
+        当 IedServer_create 构建命名空间时，会验证每个 DataSetEntry 引用的
+        MMS 变量是否存在。如果不存在，该条目会被静默丢弃。
+        因此必须在创建 DataSetEntry 之前先创建对应的模型节点。
+
+        本方法使用与 _add_point_from_ref 相同的去重机制 (_do_map, _da_map)，
+        因此不会重复创建已存在的节点。
+
+        Args:
+            ld_inst: 逻辑设备实例名 (如 "CTMP01")
+            ln_name: 逻辑节点名 (如 "GGIO1")
+            do_da_path: DO.DA[.DA...] 路径 (如 "Ind1.stVal" 或 "AnIn1.mag.f")
+            fc: 功能约束 (如 "ST", "MX", "CO")
+            iec_type: IEC 数据类型字符串 (如 "boolean", "float")
+        """
+        # 获取或创建 LN
+        ln = self._get_or_create_ln(ld_inst, ln_name)
+
+        # 解析 do_da_path: "DO.DA[.DA...]"
+        parts = do_da_path.split(".")
+        if not parts:
+            return
+
+        do_name = parts[0]
+        da_path_parts = parts[1:]  # DA 层级路径
+
+        # === 1. 获取或创建 DO ===
+        do_key = f"{ld_inst}/{ln_name}.{do_name}"
+        do_obj = self._do_map.get(do_key)
+        if do_obj is None:
+            # 确定 frame_type 用于 _add_standard_das
+            frame_type = {"MX": 0, "ST": 1, "CO": 2, "SP": 3}.get(fc, 0)
+            do_obj = iec61850.DataObject_create(do_name, iec61850.toModelNode(ln), 0)
+            self._do_map[do_key] = do_obj
+            self._keep_alive.append(do_obj)
+            # 为新 DO 自动补充标准 DAs (q, t, dU)
+            self._add_standard_das(do_obj, do_key, fc, frame_type, da_path_parts)
+
+        # === 2. 沿 da_path 逐级创建 DA 层级 ===
+        fc_const = self._resolve_fc_const(fc)
+        if fc_const is None:
+            fc_const = FC_MX
+
+        # 推断 DA 的 IEC 61850 数据类型
+        iec_type_const = self._infer_iec_type_from_str(iec_type, da_path_parts)
+
+        parent = do_obj
+        for i, part in enumerate(da_path_parts):
+            is_leaf = (i == len(da_path_parts) - 1)
+            part_key = f"{ld_inst}/{ln_name}.{do_name}.{'.'.join(da_path_parts[:i+1])}"
+
+            if is_leaf:
+                # 叶子节点: 创建 DataAttribute
+                if part_key not in self._da_map:
+                    da = iec61850.DataAttribute_create(
+                        part, iec61850.toModelNode(parent),
+                        iec_type_const, fc_const, 0, 0, 0
+                    )
+                    self._da_map[part_key] = da
+                    self._keep_alive.append(da)
+            else:
+                # 中间节点: 创建 DataObject (结构体容器)
+                existing_obj = self._do_map.get(part_key)
+                if existing_obj is not None:
+                    parent = existing_obj
+                else:
+                    sub_obj = iec61850.DataObject_create(part, iec61850.toModelNode(parent), 0)
+                    self._do_map[part_key] = sub_obj
+                    self._keep_alive.append(sub_obj)
+                    parent = sub_obj
+
+    @staticmethod
+    def _infer_iec_type_from_str(iec_type: str, da_parts: list) -> int:
+        """从 iec_type 字符串推断 IEC 61850 数据类型常量
+
+        Args:
+            iec_type: 类型字符串 ("boolean", "float", "integer", "string" 等)
+            da_parts: DA 路径分段列表
+
+        Returns:
+            pyiec61850 数据类型常量
+        """
+        if not HAS_IEC61850:
+            return 0
+
+        leaf = da_parts[-1] if da_parts else ""
+
+        # 优先根据叶子 DA 名推断
+        if leaf == "f":
+            return iec61850.IEC61850_FLOAT32
+        if leaf in ("stVal", "ctlVal") and iec_type == "boolean":
+            return iec61850.IEC61850_BOOLEAN
+        if leaf in ("stVal",) and iec_type == "integer":
+            return iec61850.IEC61850_INT32
+        if leaf in ("dU", "d", "du"):
+            return iec61850.IEC61850_VISIBLE_STRING_255
+        if leaf in ("validity", "source", "orCat"):
+            return iec61850.IEC61850_INT32
+        if leaf == "q":
+            return iec61850.IEC61850_QUALITY
+        if leaf == "t":
+            return iec61850.IEC61850_TIMESTAMP
+
+        # 回退: 根据 iec_type 字符串
+        type_map = {
+            "boolean": iec61850.IEC61850_BOOLEAN,
+            "float": iec61850.IEC61850_FLOAT32,
+            "integer": iec61850.IEC61850_INT32,
+            "string": iec61850.IEC61850_VISIBLE_STRING_255,
+            "bitstring": iec61850.IEC61850_BITSTRING,
+            "timestamp": iec61850.IEC61850_TIMESTAMP,
+        }
+        return type_map.get(iec_type, iec61850.IEC61850_FLOAT32)
+
+    def browse_datasets(self) -> List[Dict[str, Any]]:
+        """返回服务器上所有已注册的数据集目录
+
+        数据集在调用 add_goose_control_block 时被记录到 _dataset_catalog 中。
+        返回结构与客户端 discover_datasets() 兼容，供前端结构树展示。
+
+        Returns:
+            DataSet 信息列表:
+            [{ref, name, ld, member_count, members: [{ref, fc, iec_type}]}]
+        """
+        return list(self._dataset_catalog)
 
     def _enable_single_goose_cb(self, ld_inst: str, cb_name: str):
         """设置单个 GoCB 的 GoEna=TRUE"""

@@ -170,6 +170,18 @@
         </template>
       </el-table-column>
 
+      <!-- DataSet 最后更新时间列 -->
+      <el-table-column
+        v-if="props.iec61850Category === 'DataSets'"
+        label="最后更新时间"
+        :width="160"
+        show-overflow-tooltip
+      >
+        <template #default="scope">
+          <span class="cell-text">{{ scope.row['最后更新时间'] || '' }}</span>
+        </template>
+      </el-table-column>
+
       <!-- IEC61850 DA路径列 -->
       <el-table-column
         v-if="isIec61850"
@@ -240,8 +252,9 @@
         </template>
       </el-table-column>
 
-      <!-- 操作列 -->
+      <!-- 操作列（DataSet 扁平模式隐藏写入按钮） -->
       <el-table-column
+        v-if="props.iec61850Category !== 'DataSets'"
         label="操作"
         :width="isClientDevice || isIec61850WithActions ? 240 : 100"
         fixed="right"
@@ -418,6 +431,7 @@ const props = defineProps({
   protocolType: { type: [Number, String] as PropType<number | string>, default: 1 },
   isIec61850: { type: Boolean, default: false },
   iec61850TreeData: { type: Object as PropType<IEC61850TreeDataResponse | null>, default: null },
+  iec61850Category: { type: String, default: '' },
   channelId: { type: Number as PropType<number | null>, default: null },
 });
 
@@ -487,6 +501,11 @@ const hiddenColumns = computed(() => {
   
   // 非客户端设备且非 IEC61850 设备，隐藏状态列
   if (!isClientDevice.value && !props.isIec61850) {
+    hidden.push('状态');
+  }
+  
+  // DataSet 扁平模式隐藏状态列（无实际意义）
+  if (props.iec61850Category === 'DataSets') {
     hidden.push('状态');
   }
 
@@ -600,14 +619,20 @@ const filteredData = computed(() => {
   });
 });
 
-/** IEC61850 DO 总数 (从后端树形数据的 total 获取) */
-const iec61850DoTotal = computed(() => {
-  return props.iec61850TreeData?.total || 0;
-});
-
-/** 有效分页总数（IEC61850 按后端返回 DO 总数，其他用后端 total） */
+/** 有效分页总数（IEC61850 DataSet 按扁平行数，其他按后端 total） */
 const effectiveTotal = computed(() => {
-  if (props.isIec61850) return iec61850DoTotal.value;
+  if (props.isIec61850 && props.iec61850TreeData) {
+    // DataSet 扁平模式：items 展开后的总行数
+    if (props.iec61850Category === 'DataSets') {
+      let count = 0;
+      for (const item of (props.iec61850TreeData.items || [])) {
+        count += item.children?.length || 0;
+      }
+      return count;
+    }
+    // 树形模式：total 是 DO 数量
+    return props.iec61850TreeData.total || 0;
+  }
   return props.total;
 });
 
@@ -620,12 +645,35 @@ const iec61850FlatRows = computed(() => {
   const items = props.iec61850TreeData.items || [];
   const result: any[] = [];
 
+  // DataSets 模式：直接拼合 DA 到顶层，不需要 DO 行和下拉展开
+  const isDataSet = props.iec61850Category === 'DataSets';
+
   for (const doNode of items) {
     const doRef = doNode.do_ref;
     const doName = doNode.du_name || doNode.do_name;
+
+    if (isDataSet) {
+      // DataSet 扁平模式：跳过 DO 行，直接平铺每个 DA 为独立行
+      for (const daNode of (doNode.children || [])) {
+        result.push({
+          _isDaRow: false,
+          _isFlatDa: true,
+          _daPath: daNode.da_path,
+          _fc: daNode.fc,
+          '地址': `${doRef}.${daNode.da_path}`,
+          '测点名称': `${doNode.do_name}.${daNode.da_path}`,
+          '测点编码': daNode.point_code || '',
+          '真实值': daNode.value || '',
+          '16进制地址': '',
+          'FC': daNode.fc,
+          '最后更新时间': daNode['读取时间'] || '',
+        });
+      }
+      continue; // 跳过 DO 行逻辑
+    }
+
+    // === 以下为常规 DO/DA 树形模式（Data Model 等）===
     // 从 DO 的 DA 列表中查找主值作为根节点显示值
-    // 优先级: mag/cVal/instMag/mxVal > stVal/ctlVal/setVal
-    // 结构体 DA (如 mag) 自身 value 为空, 需要从 BDA children 中取值
     const hasValue = (v: any) => v !== '' && v !== undefined && v !== null;
     const getDoDisplayValue = (daList: any[]): any => {
       const groups = [
@@ -677,7 +725,7 @@ const iec61850FlatRows = computed(() => {
         _doRef: doRef,
         _isStructDa: daNode.is_struct,
         _bdaCount: daNode.children?.length || 0,
-        _isVirtualDa: !daNode.point_code,  // 无 point_code 表示后端虚拟补充的
+        _isVirtualDa: !daNode.point_code,
         '地址': `${doRef}.${daNode.da_path}`,
         '测点名称': daNode.point_name || daNode.da_name,
         '测点编码': daNode.point_code || '',

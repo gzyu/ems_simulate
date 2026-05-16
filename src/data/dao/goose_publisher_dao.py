@@ -149,15 +149,151 @@ class GoosePublisherDao:
             log.error(f"删除通道 GOOSE Publisher 失败: {e}")
             return 0
 
+    _PURE_DATASET_PREFIX = "__pure__"
+
     @classmethod
-    def get_by_channel(cls, channel_id: int) -> List[Dict[str, Any]]:
-        """获取通道下的所有 GOOSE Publisher 配置"""
+    def save_pure_dataset(
+        cls, channel_id: int, ld_inst: str, ds_name: str, data_set_ref: str,
+        entries: List[Dict[str, Any]],
+    ) -> Optional[int]:
+        """保存纯 DataSet 配置到数据库
+
+        Args:
+            channel_id: 通道 ID
+            ld_inst: 逻辑设备实例名
+            ds_name: DataSet 名称
+            data_set_ref: DataSet 引用路径
+            entries: 数据集条目列表 [{name, value, iec_type}]
+
+        Returns:
+            数据库记录 ID
+        """
+        try:
+            pure_go_cb_ref = f"{cls._PURE_DATASET_PREFIX}{data_set_ref}"
+            with local_session() as session:
+                with session.begin():
+                    existing = (
+                        session.query(GoosePublisher)
+                        .where(GoosePublisher.go_cb_ref == pure_go_cb_ref)
+                        .first()
+                    )
+                    if existing:
+                        existing.data_set_ref = data_set_ref
+                        existing.go_id = ld_inst
+                        cls._replace_entries(session, existing.id, entries)
+                        session.flush()
+                        return existing.id
+                    publisher = GoosePublisher(
+                        channel_id=channel_id,
+                        interface="",
+                        go_cb_ref=pure_go_cb_ref,
+                        go_id=ld_inst,
+                        data_set_ref=data_set_ref,
+                        app_id=0,
+                        conf_rev=1,
+                        time_allowed_to_live=1000,
+                        dst_mac_json=None,
+                        vlan_id=0,
+                        vlan_prio=4,
+                        simulation=False,
+                    )
+                    session.add(publisher)
+                    session.flush()
+                    for i, e in enumerate(entries):
+                        entry = GooseEntry(
+                            publisher_id=publisher.id,
+                            name=e.get("name", ""),
+                            value=_serialize_value(e.get("value")),
+                            iec_type=e.get("iec_type", "boolean"),
+                            sort_order=i,
+                        )
+                        session.add(entry)
+                    session.flush()
+                    return publisher.id
+        except Exception as e:
+            log.error(f"保存纯 DataSet 失败: {e}")
+            return None
+
+    @classmethod
+    def get_pure_datasets_by_channel(cls, channel_id: int) -> List[Dict[str, Any]]:
+        """获取通道下所有纯 DataSet 配置"""
         try:
             with local_session() as session:
                 with session.begin():
                     publishers = (
                         session.query(GoosePublisher)
-                        .where(GoosePublisher.channel_id == channel_id)
+                        .where(
+                            GoosePublisher.channel_id == channel_id,
+                            GoosePublisher.go_cb_ref.startswith(cls._PURE_DATASET_PREFIX),
+                        )
+                        .all()
+                    )
+                    results = []
+                    for p in publishers:
+                        entries = [
+                            {"name": e.name, "value": e._parse_value(), "iec_type": e.iec_type}
+                            for e in sorted(p.entries, key=lambda x: x.sort_order)
+                        ]
+                        results.append({
+                            "ld_inst": p.go_id,
+                            "ds_name": p.data_set_ref.split("$")[-1] if "$" in p.data_set_ref else p.data_set_ref,
+                            "data_set_ref": p.data_set_ref,
+                            "entries": entries,
+                            "_db_id": p.id,
+                            "_channel_id": p.channel_id,
+                        })
+                    return results
+        except Exception as e:
+            log.error(f"获取纯 DataSet 配置失败: {e}")
+            return []
+
+    @classmethod
+    def get_all_pure_datasets(cls) -> List[Dict[str, Any]]:
+        """获取所有纯 DataSet 配置"""
+        try:
+            with local_session() as session:
+                with session.begin():
+                    publishers = (
+                        session.query(GoosePublisher)
+                        .where(GoosePublisher.go_cb_ref.startswith(cls._PURE_DATASET_PREFIX))
+                        .all()
+                    )
+                    results = []
+                    for p in publishers:
+                        entries = [
+                            {"name": e.name, "value": e._parse_value(), "iec_type": e.iec_type}
+                            for e in sorted(p.entries, key=lambda x: x.sort_order)
+                        ]
+                        results.append({
+                            "ld_inst": p.go_id,
+                            "ds_name": p.data_set_ref.split("$")[-1] if "$" in p.data_set_ref else p.data_set_ref,
+                            "data_set_ref": p.data_set_ref,
+                            "entries": entries,
+                            "_db_id": p.id,
+                            "_channel_id": p.channel_id,
+                        })
+                    return results
+        except Exception as e:
+            log.error(f"获取所有纯 DataSet 配置失败: {e}")
+            return []
+
+    @classmethod
+    def is_pure_dataset(cls, go_cb_ref: str) -> bool:
+        """判断是否为纯 DataSet 标记"""
+        return go_cb_ref.startswith(cls._PURE_DATASET_PREFIX)
+
+    @classmethod
+    def get_by_channel(cls, channel_id: int) -> List[Dict[str, Any]]:
+        """获取通道下的所有 GOOSE Publisher 配置（排除纯 DataSet）"""
+        try:
+            with local_session() as session:
+                with session.begin():
+                    publishers = (
+                        session.query(GoosePublisher)
+                        .where(
+                            GoosePublisher.channel_id == channel_id,
+                            ~GoosePublisher.go_cb_ref.startswith(cls._PURE_DATASET_PREFIX),
+                        )
                         .all()
                     )
                     return [cls._publisher_to_config(p) for p in publishers]
@@ -167,11 +303,15 @@ class GoosePublisherDao:
 
     @classmethod
     def get_all(cls) -> List[Dict[str, Any]]:
-        """获取所有 GOOSE Publisher 配置"""
+        """获取所有 GOOSE Publisher 配置（排除纯 DataSet）"""
         try:
             with local_session() as session:
                 with session.begin():
-                    publishers = session.query(GoosePublisher).all()
+                    publishers = (
+                        session.query(GoosePublisher)
+                        .where(~GoosePublisher.go_cb_ref.startswith(cls._PURE_DATASET_PREFIX))
+                        .all()
+                    )
                     return [cls._publisher_to_config(p) for p in publishers]
         except Exception as e:
             log.error(f"获取所有 GOOSE Publisher 失败: {e}")

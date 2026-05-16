@@ -108,10 +108,37 @@
                     :key="lnChild.nodeKey"
                     class="iec61850-ln-item"
                     :class="{ 'is-selected': selectedNodeKey === lnChild.nodeKey }"
-                    @click="handleLnChildClick(lnChild)"
                   >
-                    <el-icon class="ln-icon"><Document /></el-icon>
-                    <span class="ln-label">{{ lnChild.label }}</span>
+                    <div
+                      class="iec61850-ln-row"
+                      :class="{ 'is-group': lnChild.isGroup }"
+                      @click="handleLnChildClick(lnChild)"
+                    >
+                      <el-icon
+                        v-if="lnChild.isGroup"
+                        class="expand-arrow small"
+                        :class="{ 'is-expanded': expandedCategories[`${device.name}::${lnChild.nodeKey}`] }"
+                        @click.stop="toggleIec61850Category(device.name, lnChild.nodeKey)"
+                      >
+                        <ArrowRight />
+                      </el-icon>
+                      <span v-else class="expand-arrow-placeholder small" />
+                      <el-icon class="ln-icon"><Document /></el-icon>
+                      <span class="ln-label">{{ lnChild.label }}</span>
+                    </div>
+                    <!-- LN 下的数据集子节点 (第四层) -->
+                    <div v-if="lnChild.isGroup && lnChild.children" v-show="expandedCategories[`${device.name}::${lnChild.nodeKey}`]" class="iec61850-ds-children">
+                      <div
+                        v-for="dsChild in lnChild.children"
+                        :key="dsChild.nodeKey"
+                        class="iec61850-ds-item"
+                        :class="{ 'is-selected': selectedNodeKey === dsChild.nodeKey }"
+                        @click="handleDsChildClick(dsChild)"
+                      >
+                        <el-icon class="ds-icon"><Document /></el-icon>
+                        <span class="ds-label">{{ dsChild.label }}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -211,8 +238,21 @@ const handleSubChildClick = (subChild: TreeNode, deviceName: string) => {
 // 点击 IEC61850 LN 子节点 (第三层)
 const handleLnChildClick = (lnChild: TreeNode) => {
   selectedNodeKey.value = lnChild.nodeKey;
-  // 发出 node-click 事件，传递完整的节点信息
+  // 如果 LN 有子节点（如 DataSet 下的数据集），切换展开/折叠
+  // LN 节点不触发导航（只有叶子节点如数据集的 DS 才导航到主面板）
+  if (lnChild.isGroup) {
+    toggleIec61850Category(lnChild.deviceName || '', lnChild.nodeKey);
+    return;
+  }
+  // 无子节点的 LN 也允许导航
   emit('node-click', { ...lnChild, isIec61850Child: true, deviceName: lnChild.deviceName });
+};
+
+// 点击 IEC61850 数据集子节点 (第四层)
+const handleDsChildClick = (dsChild: TreeNode) => {
+  selectedNodeKey.value = dsChild.nodeKey;
+  // 发出 node-click 事件，传递完整的节点信息
+  emit('node-click', { ...dsChild, isIec61850Child: true, deviceName: dsChild.deviceName });
 };
 
 // 当 iec61850Map 变化时，重置展开状态
@@ -505,5 +545,56 @@ watch(() => props.iec61850Map, () => {
 
 .ln-label {
   font-size: 11.5px;
+}
+
+/* LN 行（可展开/折叠） */
+.iec61850-ln-row {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  padding: 3px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.iec61850-ln-row:hover {
+  background-color: var(--item-hover-bg);
+}
+
+/* LN 下的数据集子节点 (第四层) */
+.iec61850-ds-children {
+  padding: 2px 0 4px 14px;
+}
+
+.iec61850-ds-item {
+  display: flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.iec61850-ds-item:hover {
+  background-color: var(--item-hover-bg);
+  color: var(--text-primary);
+}
+
+.iec61850-ds-item.is-selected {
+  background: var(--item-active-bg);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.ds-icon {
+  margin-right: 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.ds-label {
+  font-size: 11px;
 }
 </style>

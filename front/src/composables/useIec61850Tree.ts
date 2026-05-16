@@ -4,8 +4,7 @@
  */
 
 import { ref } from 'vue';
-import { getChannelList } from '@/api/channelApi';
-import { getIEC61850Structure } from '@/api/channelApi';
+import { getChannelList, getIEC61850Structure } from '@/api/channelApi';
 import { IEC61850_CATEGORIES } from '@/constants/protocol';
 import type { DeviceInfo } from '@/api/deviceGroupApi';
 
@@ -55,6 +54,57 @@ export function buildIEC61850Children(structure: any, deviceName: string, keyPre
             type: cat.label,
             value: `${ldName}/${ln}`,
           }));
+          return {
+            nodeKey: `${keyPrefix}-${deviceName}-${cat.key}-${ldIndex}`,
+            label: ldName,
+            isGroup: lnChildren.length > 0,
+            id: 0,
+            isIec61850Child: true,
+            iec61850Level: 'ld' as const,
+            name: ldName,
+            deviceName: deviceName,
+            type: cat.label,
+            value: ldName,
+            children: lnChildren.length > 0 ? lnChildren : undefined,
+          };
+        });
+      } else if (cat.key === 'DataSets') {
+        // DataSets 返回层级结构: [{name: "LD0", children: [{name: "LLN0", datasets: [...]}]}]
+        console.log('[DataSets] items:', JSON.stringify(items).substring(0, 500));
+        categoryChildren = items.map((ldItem: any, ldIndex: number) => {
+          const ldName = typeof ldItem === 'string' ? ldItem : ldItem.name;
+          const lnList = typeof ldItem === 'object' && ldItem.children ? ldItem.children : [];
+          console.log(`[DataSets] LD=${ldName}, lnList=`, JSON.stringify(lnList).substring(0, 300));
+          const lnChildren: TreeNode[] = lnList.map((lnItem: any, lnIndex: number) => {
+            const lnName = typeof lnItem === 'string' ? lnItem : lnItem.name;
+            const dsList = typeof lnItem === 'object' && lnItem.datasets ? lnItem.datasets : [];
+            console.log(`[DataSets] LN=${lnName}, datasets count=${dsList.length}`);
+            const dsChildren: TreeNode[] = dsList.map((ds: any, dsIndex: number) => ({
+              nodeKey: `${keyPrefix}-${deviceName}-${cat.key}-${ldIndex}-${lnIndex}-${dsIndex}`,
+              label: `${ds.name} (${ds.member_count || 0} members)`,
+              isGroup: false,
+              id: 0,
+              isIec61850Child: true,
+              iec61850Level: 'ln' as const,
+              name: ds.name || ds.ref || '',
+              deviceName: deviceName,
+              type: cat.label,
+              value: ds.ref || ds.name || '',
+            }));
+            return {
+              nodeKey: `${keyPrefix}-${deviceName}-${cat.key}-${ldIndex}-${lnIndex}`,
+              label: lnName,
+              isGroup: dsChildren.length > 0,
+              id: 0,
+              isIec61850Child: true,
+              iec61850Level: 'ln' as const,
+              name: lnName,
+              deviceName: deviceName,
+              type: cat.label,
+              value: `${ldName}/${lnName}`,
+              children: dsChildren.length > 0 ? dsChildren : undefined,
+            };
+          });
           return {
             nodeKey: `${keyPrefix}-${deviceName}-${cat.key}-${ldIndex}`,
             label: ldName,
@@ -146,6 +196,20 @@ export function buildFallbackIEC61850Children(deviceName: string, keyPrefix: str
 }
 
 /**
+ * 在树节点递归查找指定设备名的节点
+ */
+function findDeviceNode(nodes: any[], deviceName: string): any | null {
+  for (const n of nodes) {
+    if (n.name === deviceName && n.isIec61850) return n;
+    if (n.children) {
+      const found = findDeviceNode(n.children, deviceName);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
  * IEC61850 树节点管理 composable
  */
 export function useIec61850Tree() {
@@ -154,30 +218,51 @@ export function useIec61850Tree() {
   /**
    * 获取分组内设备的 IEC61850 结构并更新树
    */
+  let _structureLoadedCallback: (() => void) | null = null;
+
+  const setStructureLoadedCallback = (cb: () => void) => {
+    _structureLoadedCallback = cb;
+  };
+
   const fetchIEC61850Structure = async (channelId: number, deviceName: string, treeData: Ref<TreeNode[]>) => {
-    const updateTreeNode = (nodes: TreeNode[], iec61850Children: TreeNode[]) => {
-      for (const node of nodes) {
+    const updateTreeNode = (nodes: TreeNode[], iec61850Children: TreeNode[]): TreeNode[] => {
+      return nodes.map(node => {
         if (node.name === deviceName && node.isIec61850) {
-          node.children = iec61850Children;
-          return true;
+          return { ...node, children: iec61850Children };
         }
-        if (node.children && updateTreeNode(node.children, iec61850Children)) {
-          return true;
+        if (node.children && node.children.length > 0) {
+          return { ...node, children: updateTreeNode(node.children, iec61850Children) };
         }
-      }
-      return false;
+        return node;
+      });
     };
 
     try {
       const structure = await getIEC61850Structure(channelId);
       const iec61850Children = buildIEC61850Children(structure, deviceName, 'device');
-      updateTreeNode(treeData.value, iec61850Children);
-      treeData.value = [...treeData.value];
+
+      let updated = false;
+      try {
+        treeData.value = updateTreeNode(treeData.value, iec61850Children);
+        updated = true;
+        console.log(`[TreeUpdate] treeData.value type=${typeof treeData.value}, isArray=${Array.isArray(treeData.value)}, length=${treeData.value?.length}`);
+        const dev = findDeviceNode(treeData.value, deviceName);
+        console.log(`[TreeUpdate] device "${deviceName}" found:`, !!dev, 'childrenCount:', dev?.children?.length);
+        if (dev?.children) {
+          const dsCat = dev.children.find((c: any) => c?.name === 'DataSets');
+          console.log(`[TreeUpdate] DataSets category exist:`, !!dsCat, 'childrenCount:', dsCat?.children?.length);
+        }
+      } catch (mapErr: any) {
+        console.error(`[TreeUpdate ERROR] updateTreeNode failed:`, mapErr, `deviceName=${deviceName}`);
+        treeData.value = updateTreeNode(treeData.value, iec61850Children);
+      }
+
+      _structureLoadedCallback?.();
     } catch (error) {
-      console.warn(`获取 IEC61850 结构失败 (设备: ${deviceName}), 显示默认结构:`, error);
+      console.error(`[TreeUpdate ERROR] fetchIEC61850Structure outer catch:`, error);
       const fallback = buildFallbackIEC61850Children(deviceName, 'device');
-      updateTreeNode(treeData.value, fallback);
-      treeData.value = [...treeData.value];
+      treeData.value = updateTreeNode(treeData.value, fallback);
+      _structureLoadedCallback?.();
     }
   };
 
@@ -193,6 +278,10 @@ export function useIec61850Tree() {
           if (channel && channel.protocol_type === 4) {
             node.isIec61850 = true;
             node.iec61850ChannelId = channel.id;
+            // 预设空 children 数组，让 el-tree 初始时就知道该节点"可展开"显示箭头
+            if (!node.children) {
+              node.children = [];
+            }
             fetchIEC61850Structure(channel.id, node.name, treeData);
           }
         }
@@ -241,6 +330,7 @@ export function useIec61850Tree() {
     fetchIEC61850Structure,
     markIEC61850Devices,
     markUngroupedIEC61850Devices,
+    setStructureLoadedCallback,
   };
 }
 

@@ -35,6 +35,43 @@ export interface CopyDeviceRequest {
   port_offset?: number;
 }
 
+export interface IEC61850DataSetInfo {
+  ref: string;
+  name: string;
+  ld: string;
+  member_count: number;
+}
+
+export interface IEC61850DataSetMember {
+  ref: string;
+  fc: string;
+  iec_type: string;
+  index?: number;
+  value?: any;
+}
+
+export interface IEC61850DataSetDetail {
+  ref: string;
+  name: string;
+  ld: string;
+  member_count: number;
+  members: IEC61850DataSetMember[];
+}
+
+export interface IEC61850DataSetTreeItem extends IEC61850DataSetInfo {
+  ln?: string;
+}
+
+export interface IEC61850DataSetLnItem {
+  name: string;
+  datasets: IEC61850DataSetTreeItem[];
+}
+
+export interface IEC61850DataSetLdItem {
+  name: string;
+  children: IEC61850DataSetLnItem[];
+}
+
 export interface IEC61850DataModelItem {
   name: string;
   children: string[];
@@ -45,7 +82,7 @@ export interface IEC61850Structure {
   Reports: string[];
   SettingGroups: string[];
   Files: string[];
-  DataSets: string[];
+  DataSets: IEC61850DataSetLdItem[];
   "Data Model": IEC61850DataModelItem[];
 }
 
@@ -408,6 +445,21 @@ export async function iec61850WritePoint(
     });
   } catch (error) {
     console.error('Error writing IEC61850 point:', error);
+    throw error;
+  }
+}
+
+export async function getIEC61850DatasetDetail(
+  channelId: number,
+  datasetRef: string,
+): Promise<IEC61850DataSetDetail | null> {
+  try {
+    return await requestApi(CHANNEL_API.IEC61850_DATASET_DETAIL, 'post', {
+      channel_id: channelId,
+      dataset_ref: datasetRef,
+    });
+  } catch (error) {
+    console.error('Error fetching IEC61850 dataset detail:', error);
     throw error;
   }
 }

@@ -198,6 +198,7 @@ async def import_icd(
             goose_data: Dict[str, Any] = {}
             goose_errors: List[str] = []
             created_goose_count = 0
+            pure_datasets: List[Dict[str, Any]] = []
 
             # 先清除旧的 GOOSE 持久化记录和内存中的 Publisher
             try:
@@ -281,19 +282,65 @@ async def import_icd(
                                 goose_errors.append(
                                     f"创建 Publisher 异常 ({pub_config['go_cb_ref']}): {e}"
                                 )
-
-                        # GoCB 添加到模型后需要重启服务器才能生效
-                        if created_goose_count > 0 and iec61850_server and iec61850_server.is_running:
-                            try:
-                                log.info(f"重启 MMS 服务器以加载 GSEControlBlock ({created_goose_count} 个)...")
-                                if iec61850_server.restart():
-                                    log.info("MMS 服务器重启完成，GoCB 已生效")
-                                else:
-                                    goose_errors.append("MMS 服务器重启失败")
-                            except Exception as restart_err:
-                                goose_errors.append(f"重启 MMS 服务器失败: {restart_err}")
                     else:
                         goose_errors.append("GOOSE 管理器未初始化，无法自动创建 Publisher")
+
+                # ===== 注册未被 GSEControl 引用的纯 DataSet =====
+                # 重要：必须在 restart() 之前注册，否则 IedServer_create 后
+                # 再添加 DataSet 会导致 MMS 命名空间不一致，客户端连接时崩溃
+                pure_datasets = goose_result.get("pure_datasets", [])
+                pure_ds_count = 0
+                log.info(f"纯 DataSet 注册准备: pure_datasets={len(pure_datasets)}个, iec61850_server={'可用' if iec61850_server else 'None'}")
+                if pure_datasets and iec61850_server:
+                    for ds_info in pure_datasets:
+                        try:
+                            success = iec61850_server.register_dataset(
+                                ld_inst=ds_info["ld_inst"],
+                                ds_name=ds_info["ds_name"],
+                                data_set_ref=ds_info["data_set_ref"],
+                                entries=ds_info.get("entries", []),
+                            )
+                            if success:
+                                pure_ds_count += 1
+                        except Exception as ds_err:
+                            log.warning(f"注册纯 DataSet 失败 ({ds_info.get('ds_name', '')}): {ds_err}")
+
+                # GoCB + DataSet 添加到模型后，统一重启服务器使 MMS 命名空间生效
+                # 重要：所有 DataSet 必须在 restart() 之前注册完毕，
+                # 否则 IedServer_create 不会包含后续添加的 DataSet，客户端连接时崩溃
+                need_restart = (created_goose_count > 0 or (pure_datasets and pure_ds_count > 0))
+                if need_restart and iec61850_server and iec61850_server.is_running:
+                    try:
+                        log.info(f"重启 MMS 服务器以加载 {created_goose_count} 个 GSEControlBlock 和 {pure_ds_count} 个纯 DataSet...")
+                        if iec61850_server.restart():
+                            log.info("MMS 服务器重启完成，GoCB 和 DataSet 已生效")
+                        else:
+                            goose_errors.append("MMS 服务器重启失败")
+                    except Exception as restart_err:
+                        goose_errors.append(f"重启 MMS 服务器失败: {restart_err}")
+
+                # 持久化纯 DataSet 到数据库（应用重启后可自动恢复）
+                if pure_datasets:
+                    try:
+                        from src.data.dao.goose_publisher_dao import GoosePublisherDao
+                        saved_pure_count = 0
+                        for ds_info in pure_datasets:
+                            dao_result = GoosePublisherDao.save_pure_dataset(
+                                channel_id=channel_id,
+                                ld_inst=ds_info.get("ld_inst", ""),
+                                ds_name=ds_info.get("ds_name", ""),
+                                data_set_ref=ds_info.get("data_set_ref", ""),
+                                entries=ds_info.get("entries", []),
+                            )
+                            if dao_result is not None:
+                                saved_pure_count += 1
+                        if saved_pure_count > 0:
+                            log.info(f"已持久化 {saved_pure_count} 个纯 DataSet 到数据库")
+                    except Exception as persist_err:
+                        log.warning(f"持久化纯 DataSet 到数据库失败 (不影响内存注册): {persist_err}")
+
+                    if pure_ds_count > 0:
+                        log.info(f"已注册 {pure_ds_count} 个纯 DataSet 到 MMS 模型")
             except Exception as e:
                 log.warning(f"解析 ICD GOOSE 配置失败 (不影响 MMS 导入): {e}")
                 goose_errors.append(f"GOOSE 解析失败: {e}")
@@ -311,6 +358,7 @@ async def import_icd(
                         "publishers": goose_data.get("publishers", []),
                         "subscriptions": goose_data.get("subscriptions", []),
                         "created_count": created_goose_count,
+                        "pure_dataset_count": len(pure_datasets) if pure_datasets else 0,
                         "errors": goose_errors,
                     } if goose_data else None,
                 },

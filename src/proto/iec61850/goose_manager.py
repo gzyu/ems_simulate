@@ -375,12 +375,19 @@ class GooseManager:
             log.error(f"删除通道 GOOSE Publisher 持久化记录失败: {e}")
             return 0
 
-    def load_from_db(self, channel_id: Optional[int] = None, server: Optional[Any] = None) -> int:
+    def load_from_db(
+        self,
+        channel_id: Optional[int] = None,
+        server: Optional[Any] = None,
+        server_map: Optional[Dict[int, Any]] = None,
+    ) -> int:
         """从数据库加载 GOOSE Publisher 到内存
 
         Args:
             channel_id: 可选，只加载指定通道的 Publisher
-            server: 可选，IEC61850Server 实例
+            server: 可选，IEC61850Server 实例（指定单个服务器）
+            server_map: 可选，{channel_id: IEC61850Server} 字典，
+                       用于 startup 时将 Publisher 注册到对应的 MMS 服务器
 
         Returns:
             加载的 Publisher 数量
@@ -388,6 +395,36 @@ class GooseManager:
         try:
             from src.data.dao.goose_publisher_dao import GoosePublisherDao
 
+            # ===== 1. 恢复纯 DataSet =====
+            # 重要：必须在 IedServer 启动前注册，否则 IedServer_create 后
+            # 再添加 DataSet 会导致 MMS 命名空间不一致，客户端连接时崩溃
+            pure_ds_loaded = 0
+            try:
+                pure_datasets = GoosePublisherDao.get_all_pure_datasets()
+                for ds_info in pure_datasets:
+                    ds_channel_id = ds_info.get("_channel_id")
+                    effective_server = server_map.get(ds_channel_id) if server_map else None
+                    if effective_server is None:
+                        effective_server = server
+                    if effective_server is None:
+                        continue
+                    try:
+                        effective_server.register_dataset(
+                            ld_inst=ds_info["ld_inst"],
+                            ds_name=ds_info["ds_name"],
+                            data_set_ref=ds_info["data_set_ref"],
+                            entries=ds_info.get("entries", []),
+                        )
+                        pure_ds_loaded += 1
+                    except Exception as ds_err:
+                        log.warning(f"从数据库恢复纯 DataSet 失败 ({ds_info.get('ds_name', '')}): {ds_err}")
+                if pure_ds_loaded > 0:
+                    log.info(f"从数据库恢复了 {pure_ds_loaded} 个纯 DataSet")
+            except Exception as pure_load_err:
+                log.warning(f"从数据库恢复纯 DataSet 失败: {pure_load_err}")
+
+
+            # ===== 2. 恢复 GOOSE Publisher =====
             if channel_id is not None:
                 configs = GoosePublisherDao.get_by_channel(channel_id)
             else:
@@ -424,8 +461,6 @@ class GooseManager:
                     for e in cfg.get("entries", []):
                         name = e.get("name", "")
                         if not name or name in seen_names:
-                            if name:
-                                log.warning(f"数据库加载时跳过重复的条目名称: {name}")
                             continue
                         seen_names.add(name)
                         entry = GooseDataSetEntry(
@@ -445,13 +480,19 @@ class GooseManager:
                     if db_channel_id is not None:
                         self._channel_map[go_cb_ref] = db_channel_id
 
-                    # 注册 GSEControlBlock
-                    if server is not None:
+                    # 注册 GSEControlBlock（传递 entries 确保 DataSet 目录完整）
+                    effective_server = server
+                    if effective_server is None and server_map is not None:
+                        db_channel_id = cfg.get("_channel_id")
+                        if db_channel_id is not None:
+                            effective_server = server_map.get(db_channel_id)
+
+                    if effective_server is not None:
                         try:
                             gse_name = go_cb_ref.split("$")[-1] if "$" in go_cb_ref else go_cb_ref.split("/")[-1]
                             # 从 go_cb_ref 中提取 LD 实例名
                             go_ld_inst = go_cb_ref.split("/")[0] if "/" in go_cb_ref else None
-                            server.add_goose_control_block(
+                            effective_server.add_goose_control_block(
                                 name=gse_name,
                                 app_id=cfg.get("app_id", 0x0001),
                                 data_set_ref=cfg.get("data_set_ref", ""),
@@ -460,6 +501,7 @@ class GooseManager:
                                 min_time=10,
                                 max_time=cfg.get("time_allowed_to_live", 1000),
                                 ld_inst=go_ld_inst,
+                                entries=cfg.get("entries", []),
                             )
                         except Exception as gse_err:
                             log.warning(f"从数据库恢复时注册 GSEControlBlock 失败: {gse_err}")

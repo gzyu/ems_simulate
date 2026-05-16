@@ -6,7 +6,7 @@
     node-key="nodeKey"
     :default-expanded-keys="expandedKeys"
     :current-node-key="currentNodeKey"
-    :expand-on-click-node="false"
+    :expand-on-click-node="true"
     highlight-current
     @node-click="(data: any) => handleNodeClick(data)"
     class="device-tree"

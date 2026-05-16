@@ -60,7 +60,18 @@ async def startup_event():
 
         # 从数据库加载已持久化的 GOOSE Publisher 配置
         try:
-            loaded_count = app.state.goose_manager.load_from_db()
+            # 构建 channel_id -> IEC61850Server 映射
+            server_map = {}
+            for device in app.state.device_controller.device_list:
+                device_id = getattr(device, 'device_id', None) or getattr(device, 'id', None)
+                if device_id and hasattr(device, 'protocol_handler') and device.protocol_handler:
+                    handler = device.protocol_handler
+                    if hasattr(handler, 'server') and handler.server:
+                        server_map[device_id] = handler.server
+
+            loaded_count = app.state.goose_manager.load_from_db(server_map=server_map)
+            if server_map:
+                log.info(f"已将 {len(server_map)} 个 IEC61850 服务器关联到 GOOSE DataSet 注册")
             log.info(f"从数据库加载 {loaded_count} 个已持久化的 GOOSE Publisher")
         except Exception as load_err:
             log.warning(f"从数据库加载 GOOSE Publisher 失败: {load_err}")

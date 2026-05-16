@@ -8,6 +8,7 @@ IEC 61850 MMS 客户端封装
 """
 
 import time
+from ctypes import byref, c_bool
 from typing import Any, Dict, List, Optional, Tuple, Union
 from .log import log
 from .iec61850_defs import (
@@ -315,6 +316,8 @@ class IEC61850Client:
         self._point_iec_type: Dict[str, str] = {}
         # 发现的 GOOSE 控制块列表（与普通测点分开存储）
         self._discovered_goose_items: List[Dict[str, Any]] = []
+        # 发现的 DataSet 列表
+        self._discovered_datasets: List[Dict[str, Any]] = []
 
     def _build_ref(self, address) -> str:
         """根据地址构建 MMS 引用路径
@@ -898,6 +901,99 @@ class IEC61850Client:
             self._is_connected = False
             return False
 
+    def _mms_value_to_python(self, mms_value, iec_type: str = IEC_TYPE_UNKNOWN) -> Any:
+        """将 MmsValue 转换为 Python 原生类型
+
+        根据 iec_type 或 MmsValue 的 MmsType 自动选择合适的读取方法。
+
+        Args:
+            mms_value: pyiec61850 MmsValue 对象
+            iec_type: 期望的数据类型 (float/boolean/integer/string/timestamp/unknown)
+
+        Returns:
+            Python 原生值 (float/bool/int/str)，None 表示转换失败
+        """
+        if mms_value is None:
+            return None
+
+        if not hasattr(iec61850, 'MmsValue_getType'):
+            return None
+
+        # 优先按已知 iec_type 读取
+        if iec_type == IEC_TYPE_FLOAT or iec_type == IEC_TYPE_INTEGER:
+            try:
+                return float(iec61850.MmsValue_toFloat(mms_value))
+            except Exception:
+                try:
+                    return int(str(mms_value))
+                except Exception:
+                    return None
+        elif iec_type == IEC_TYPE_BOOLEAN:
+            try:
+                return bool(iec61850.MmsValue_getBoolean(mms_value))
+            except Exception:
+                return None
+        elif iec_type == IEC_TYPE_STRING:
+            try:
+                return str(iec61850.MmsValue_toString(mms_value))
+            except Exception:
+                return None
+        elif iec_type == IEC_TYPE_TIMESTAMP:
+            try:
+                return iec61850.MmsValue_getUtcTimeInMs(mms_value)
+            except Exception:
+                return None
+
+        # 未知类型: 根据 MmsType 自动探测
+        try:
+            mms_type = iec61850.MmsValue_getType(mms_value)
+            type_str = iec61850.MmsValue_getTypeString(mms_value)
+
+            # FLOAT 类型
+            if mms_type in (iec61850.MMS_FLOAT,) or 'float' in type_str.lower():
+                return float(iec61850.MmsValue_toFloat(mms_value))
+            # BOOLEAN 类型
+            elif mms_type == iec61850.MMS_BOOLEAN:
+                return bool(iec61850.MmsValue_getBoolean(mms_value))
+            # INTEGER 类型
+            elif mms_type in (iec61850.MMS_INTEGER, iec61850.MMS_UNSIGNED):
+                return int(iec61850.MmsValue_toFloat(mms_value))
+            # BITSTRING 类型
+            elif hasattr(iec61850, 'MMS_BITSTRING') and mms_type == iec61850.MMS_BITSTRING:
+                return iec61850.MmsValue_getBitStringAsInteger(mms_value)
+            # STRING/VISIBLE_STRING 类型
+            elif mms_type in (iec61850.MMS_VISIBLE_STRING, iec61850.MMS_STRING):
+                return str(iec61850.MmsValue_toString(mms_value))
+            # UTC TIME 类型
+            elif mms_type == iec61850.MMS_UTC_TIME:
+                return iec61850.MmsValue_getUtcTimeInMs(mms_value)
+            # ARRAY/STRUCTURE: 返回子元素列表
+            elif mms_type in (iec61850.MMS_ARRAY, iec61850.MMS_STRUCTURE):
+                arr_size = iec61850.MmsValue_getArraySize(mms_value)
+                elements = []
+                for j in range(arr_size):
+                    el = iec61850.MmsValue_getElement(mms_value, j)
+                    if el:
+                        el_val = self._mms_value_to_python(el, IEC_TYPE_UNKNOWN)
+                        if el_val is not None:
+                            elements.append(el_val)
+                return elements if elements else None
+            else:
+                # 回退: 尝试 float 和 str
+                try:
+                    return float(iec61850.MmsValue_toFloat(mms_value))
+                except Exception:
+                    return str(mms_value)
+        except Exception:
+            # 最后回退
+            try:
+                return float(iec61850.MmsValue_toFloat(mms_value))
+            except Exception:
+                try:
+                    return str(mms_value)
+                except Exception:
+                    return None
+
     def _get_list_from_linked_list(self, linked_list) -> List[str]:
         """从 LinkedList 中提取字符串列表
 
@@ -1437,6 +1533,14 @@ class IEC61850Client:
                 if not go_cb_names:
                     log.warning(f"LLN0({ln_ref}) 下未发现任何 GoCB (可能服务器不支持 GoCB 浏览)")
 
+        # 5. 发现 DataSet (数据集)
+        try:
+            self._discovered_datasets = self.discover_datasets()
+            log.info(f"动态发现完成, 发现 {len(self._discovered_datasets)} 个 DataSet")
+        except Exception as e:
+            log.debug(f"自动发现 DataSet 失败: {e}")
+            self._discovered_datasets = []
+
         log.info(f"IEC 61850 动态发现完成, 耗时: {time.time() - start_time:.2f}s, 发现并映射了 {len(discovered_points)} 个测点")
         return discovered_points
 
@@ -1466,6 +1570,318 @@ class IEC61850Client:
         # 追加发现的 GOOSE 控制块
         result.extend(self._discovered_goose_items)
         return result
+
+    def get_discovered_datasets(self) -> List[Dict[str, Any]]:
+        """获取当前已发现的 DataSet 列表"""
+        return list(self._discovered_datasets)
+
+    def discover_datasets(self) -> List[Dict[str, Any]]:
+        """发现所有逻辑设备下的 DataSet (数据集) 引用
+
+        使用 IedConnection_getLogicalDeviceDataSets 获取每个 LD 下的 DataSet 列表，
+        然后使用 IedConnection_getDataSetDirectory 获取每个 DataSet 的成员信息。
+
+        Returns:
+            DataSet 信息列表，每个元素包含:
+            {
+                "ref": "LD0/LLN0$dsGOOSE1",       # DataSet 完整引用
+                "name": "dsGOOSE1",                  # DataSet 名称
+                "ld": "LD0",                         # 所属逻辑设备
+                "ln": "LLN0",                        # 所属逻辑节点
+                "member_count": 5,                   # 成员数量
+                "members": [                         # 成员列表
+                    {"ref": "LD0/MMXU1.TotW.mag.f", "fc": "MX"},
+                    ...
+                ]
+            }
+        """
+        if not self._connection or not self._is_connected:
+            return []
+
+        if not hasattr(iec61850, 'IedConnection_getLogicalDeviceDataSets'):
+            log.warning("pyiec61850 不支持获取逻辑设备 DataSet 列表")
+            return []
+
+        # 1. 获取逻辑设备列表
+        try:
+            lds = self.browse_logical_devices()
+        except Exception as e:
+            log.error(f"发现 DataSet 时获取逻辑设备列表失败: {e}")
+            return []
+
+        datasets_result = []
+        for ld in lds:
+            try:
+                # 2. 获取逻辑设备下的 DataSet 引用列表
+                ds_refs_raw = iec61850.IedConnection_getLogicalDeviceDataSets(
+                    self._connection, ld
+                )
+                if isinstance(ds_refs_raw, (list, tuple)):
+                    ds_ref_list = ds_refs_raw[0] if ds_refs_raw[0] else None
+                    ds_error = ds_refs_raw[1] if len(ds_refs_raw) > 1 else 0
+                else:
+                    ds_ref_list = ds_refs_raw
+                    ds_error = 0
+
+                if ds_error != iec61850.IED_ERROR_OK or ds_ref_list is None:
+                    log.debug(f"逻辑设备 {ld} 下没有 DataSet (错误码: {ds_error})")
+                    continue
+
+                # 解析 DataSet 引用列表
+                ds_refs = self._get_list_from_linked_list(ds_ref_list)
+
+                for ds_ref in ds_refs:
+                    ds_ref_str = str(ds_ref)
+                    catalog_ref = ds_ref_str  # 用于 catalog 存储（可能比原始 ref 多 LD 前缀）
+                    # 解析 DataSet 名称: "LD0/LLN0$dsGOOSE1" -> "dsGOOSE1"
+                    ds_name = ds_ref_str.split("$")[-1] if "$" in ds_ref_str else ds_ref_str
+                    # 解析所属 LD/LN
+                    # 注意: 远程 IED 的 IedConnection_getLogicalDeviceDataSets 返回的 ref
+                    # 可能不带 LD 前缀 (如 "LLN0$dsRack1CellTemp")，因为 LD 由 API 调用上下文隐含
+                    try:
+                        parts = ds_ref_str.split("/", 1)
+                        if len(parts) >= 2:
+                            ds_ld = parts[0]
+                            ln_part = parts[1].split("$")[0] if "$" in parts[1] else ""
+                        else:
+                            ds_ld = ld  # 使用外层循环的 LD 名称
+                            ln_part = parts[0].split("$")[0] if "$" in parts[0] else ""
+                            # 补全 ref 为完整格式（前端树结构依赖 LD 前缀）
+                            catalog_ref = f"{ds_ld}/{ds_ref_str}"
+                    except Exception:
+                        ds_ld = ld
+                        ln_part = ""
+
+                    # 3. 浏览 DataSet 目录 (获取成员列表)
+                    # 注意: API 调用用原始 ds_ref_str (不带 LD 前缀)，远程 IED 可能不认识补全后的 ref
+                    members = self.browse_dataset_directory(ds_ref_str)
+
+                    datasets_result.append({
+                        "ref": catalog_ref,  # 存储补全后的完整 ref
+                        "name": ds_name,
+                        "ld": ds_ld,
+                        "ln": ln_part,
+                        "member_count": len(members),
+                        "members": members,
+                    })
+                    log.info(f"发现 DataSet: {catalog_ref}, 成员数: {len(members)}")
+
+            except Exception as e:
+                log.debug(f"发现逻辑设备 {ld} 的 DataSet 时出错: {e}")
+                continue
+
+        log.info(f"DataSet 发现完成, 共发现 {len(datasets_result)} 个 DataSet")
+        return datasets_result
+
+    def browse_dataset_directory(self, dataset_ref: str) -> List[Dict[str, Any]]:
+        """浏览 DataSet 目录, 获取其成员列表 (FCDA 条目)
+
+        使用 IedConnection_getDataSetDirectory 获取 DataSet 中所有 FCDA 引用，
+        每个成员包含引用路径 (ref)、功能约束 (fc)、和推断的数据类型 (iec_type)。
+
+        Args:
+            dataset_ref: DataSet 引用路径，如 "LD0/LLN0$dsGOOSE1"
+
+        Returns:
+            成员信息列表:
+            [{"ref": str, "fc": str, "iec_type": str}, ...]
+        """
+        if not self._connection or not self._is_connected:
+            return []
+
+        if not hasattr(iec61850, 'IedConnection_getDataSetDirectory'):
+            log.warning("pyiec61850 不支持浏览 DataSet 目录")
+            return []
+
+        try:
+            # 不同 pyiec61850 版本的 IedConnection_getDataSetDirectory 签名不同:
+            #   方式1: getDataSetDirectory(conn, ref, byref(c_bool())) -> (sDataSet, error)
+            #   方式2: getDataSetDirectory(conn, ref, False) -> (sDataSet, error)
+            #   方式3: getDataSetDirectory(conn, ref) -> (sDataSet, error)
+            is_deletable = c_bool()
+            result = None
+            try_methods = [
+                lambda: iec61850.IedConnection_getDataSetDirectory(
+                    self._connection, dataset_ref, byref(is_deletable)),
+                lambda: iec61850.IedConnection_getDataSetDirectory(
+                    self._connection, dataset_ref, False),
+                lambda: iec61850.IedConnection_getDataSetDirectory(
+                    self._connection, dataset_ref, is_deletable),
+                lambda: iec61850.IedConnection_getDataSetDirectory(
+                    self._connection, dataset_ref),
+            ]
+            for try_fn in try_methods:
+                try:
+                    result = try_fn()
+                    if result is not None:
+                        break
+                except TypeError:
+                    continue
+                except Exception:
+                    continue
+            if result is None:
+                return []
+                s_data_set = result[0] if result[0] else None
+                dir_error = result[1] if len(result) > 1 else 0
+            else:
+                s_data_set = result
+                dir_error = 0
+
+            if dir_error != iec61850.IED_ERROR_OK or s_data_set is None:
+                log.debug(f"浏览 DataSet 目录失败: {dataset_ref} (错误码: {dir_error})")
+                return []
+
+            # sDataSet.fcdas 是一个 LinkedList，每个节点包含 DataSetEntry
+            fcdas = getattr(s_data_set, 'fcdas', None)
+            if fcdas is None:
+                return []
+
+            members = []
+            it = iec61850.LinkedList_getNext(fcdas)
+            while it:
+                entry = iec61850.LinkedList_getData(it)
+                if entry:
+                    try:
+                        # DataSetEntry 字段: logicalDeviceName, variableName, componentName
+                        ld_name = getattr(entry, 'logicalDeviceName', '') or ''
+                        var_name = getattr(entry, 'variableName', '') or ''
+                        comp_name = getattr(entry, 'componentName', '') or ''
+                        entry_index = getattr(entry, 'index', 0) or 0
+
+                        # 构建 FCDA 引用: "LD0/MMXU1.TotW.mag.f"
+                        if ld_name and var_name:
+                            if comp_name:
+                                ref_str = f"{ld_name}/{var_name}.{comp_name}"
+                                # 处理有 index 的情况 (如数组元素)
+                                if entry_index > 0:
+                                    ref_str = f"{ld_name}/{var_name}[{entry_index}].{comp_name}"
+                            else:
+                                ref_str = f"{ld_name}/{var_name}"
+                        else:
+                            # 备用: 使用 DataSetEntry.value 或 str(entry)
+                            ref_str = str(entry) if entry else ""
+
+                        # 推断 FC
+                        fc_str = infer_fc_from_address(ref_str) if ref_str else "MX"
+
+                        # 推断 iec_type
+                        iec_type = infer_iec_type_from_address(ref_str) if ref_str else IEC_TYPE_UNKNOWN
+
+                        members.append({
+                            "ref": ref_str,
+                            "fc": fc_str,
+                            "iec_type": iec_type,
+                            "index": entry_index,
+                        })
+                    except Exception as e:
+                        log.debug(f"解析 DataSet 条目时出错: {e}")
+
+                it = iec61850.LinkedList_getNext(it)
+
+            return members
+
+        except Exception as e:
+            log.error(f"浏览 DataSet 目录异常: {dataset_ref}, 错误: {e}")
+            return []
+
+    def read_dataset_values(self, dataset_ref: str, fc: str = "") -> Dict[str, Any]:
+        """通过 DataSet 一次 MMS 调用读取所有成员的值
+
+        使用 IedConnection_readDataSetValues 在单个 MMS 请求中读取 DataSet
+        的所有成员值。这比逐点读取效率高得多。
+
+        Args:
+            dataset_ref: DataSet 引用路径，如 "LD0/LLN0$dsGOOSE1"
+            fc: 功能约束 (如 "MX", "ST", "CO")，为空时自动使用 MX
+
+        Returns:
+            {fcda_ref: value} 字典，
+            如 {"GenericEquipment/LLN0.dsGOOSE1.member1": 123.45, ...}
+        """
+        if not self._connection or not self._is_connected:
+            return {}
+
+        if not hasattr(iec61850, 'IedConnection_readDataSetValues'):
+            log.warning("pyiec61850 不支持 IedConnection_readDataSetValues")
+            return {}
+
+        fc_val = self._get_fc_value(fc) if fc else FC_MX
+
+        try:
+            # 尝试 3 参数版本: readDataSetValues(conn, ref, fc) -> (ClientDataSet, error)
+            result = iec61850.IedConnection_readDataSetValues(
+                self._connection, dataset_ref, fc_val
+            )
+            if isinstance(result, (list, tuple)):
+                client_data_set = result[0] if len(result) > 0 else None
+                read_error = result[1] if len(result) > 1 else 0
+            else:
+                client_data_set = result
+                read_error = 0
+
+        except TypeError:
+            # 4 参数版本: readDataSetValues(conn, ref, fc, clientDataSet) -> error
+            client_data_set = None
+            read_error = -1
+            if hasattr(iec61850, 'ClientDataSet_create'):
+                try:
+                    client_data_set = iec61850.ClientDataSet_create()
+                    err = iec61850.IedConnection_readDataSetValues(
+                        self._connection, dataset_ref, fc_val, client_data_set
+                    )
+                    if isinstance(err, (list, tuple)):
+                        read_error = err[1] if len(err) > 1 else err[0]
+                    else:
+                        read_error = int(err)
+                except Exception as e2:
+                    log.debug(f"读取 DataSet 值(4参数)失败: {dataset_ref}, {e2}")
+                    return {}
+
+        if read_error != 0 or client_data_set is None:
+            log.debug(f"读取 DataSet 值失败: {dataset_ref} (错误码: {read_error})")
+            return {}
+
+        # 获取成员列表（用于映射返回值到 FCDA 引用）
+        members = self.browse_dataset_directory(dataset_ref)
+
+        # 使用 ClientDataSet_getValues 获取 MmsValue 数组
+        if not hasattr(iec61850, 'ClientDataSet_getValues'):
+            return {}
+
+        mms_array = iec61850.ClientDataSet_getValues(client_data_set)
+        if mms_array is None:
+            return {}
+
+        values = {}
+        array_size = iec61850.MmsValue_getArraySize(mms_array) if hasattr(iec61850, 'MmsValue_getArraySize') else 0
+
+        for i in range(min(array_size, len(members))):
+            element = iec61850.MmsValue_getElement(mms_array, i) if hasattr(iec61850, 'MmsValue_getElement') else None
+            if element is None:
+                continue
+
+            member = members[i] if i < len(members) else {}
+            ref = member.get("ref", str(i))
+            iec_type = member.get("iec_type", IEC_TYPE_UNKNOWN)
+
+            try:
+                val = self._mms_value_to_python(element, iec_type)
+                if val is not None:
+                    values[ref] = val
+            except Exception:
+                pass
+
+        # 清理
+        try:
+            iec61850.MmsValue_delete(mms_array)
+        except Exception:
+            pass
+        try:
+            iec61850.ClientDataSet_destroy(client_data_set)
+        except Exception:
+            pass
+
+        return values
 
     def browse_logical_devices(self) -> List[str]:
         """浏览远端 IED 的逻辑设备列表"""

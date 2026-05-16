@@ -118,6 +118,47 @@ class IEC61850ServerHandler(ServerHandler):
                 fc=fc,
             )
 
+    def get_discovered_datasets(self) -> List[Dict[str, Any]]:
+        """获取服务端上已注册的 DataSet 列表"""
+        if self._server and hasattr(self._server, 'browse_datasets'):
+            return self._server.browse_datasets()
+        return []
+
+    def read_dataset_values(self, dataset_ref: str) -> Dict[str, Any]:
+        """读取 DataSet 中所有成员的值（服务端模式从当前点值获取）
+
+        Args:
+            dataset_ref: DataSet 引用路径
+
+        Returns:
+            {fcda_ref: value} 字典
+        """
+        if not self._server:
+            return {}
+        # 服务端模式：直接从 DataSet 目录获取成员，再逐个读取
+        datasets = self.get_discovered_datasets()
+        for ds in datasets:
+            if ds.get("ref") == dataset_ref:
+                members = ds.get("members", [])
+                break
+        else:
+            members = []
+
+        values = {}
+        for member in members:
+            ref = member.get("ref", "")
+            if not ref:
+                continue
+            # 使用地址格式读取值
+            fc = member.get("fc", "MX")
+            try:
+                val = self._server.get_point_value(address=ref, fc=fc)
+                if val is not None:
+                    values[ref] = val
+            except Exception:
+                pass
+        return values
+
     def get_value_by_address(
         self, func_code: int, slave_id: int, address: int
     ) -> Any:
@@ -171,6 +212,7 @@ class IEC61850ClientHandler(ClientHandler):
         self._connect_phase = self.PHASE_IDLE  # 当前连接阶段
         self._connect_progress = 0  # 连接进度 0-100
         self._discovered_goose_items: List[Dict[str, Any]] = []  # 发现的 GOOSE 控制块
+        self._discovered_datasets: List[Dict[str, Any]] = []  # 发现的 DataSet 列表
 
     def set_on_points_discovered(self, callback):
         """设置测点发现回调
@@ -265,13 +307,20 @@ class IEC61850ClientHandler(ClientHandler):
         self._client.discover_model()
         self._connect_progress = 80
 
-        # 阶段3: 保存发现的 GOOSE 控制块（供结构树展示）
+        # 阶段3: 保存发现的 GOOSE 控制块和 DataSet（供结构树展示）
         if self._client:
             self._discovered_goose_items.clear()
             self._discovered_goose_items.extend(self._client._discovered_goose_items)
             if self._discovered_goose_items and self._log:
                 self._log.info(f"发现 {len(self._discovered_goose_items)} 个 GOOSE 控制块: " +
                     ", ".join(g.get("go_cb_ref", g.get("name", "")) for g in self._discovered_goose_items))
+
+            self._discovered_datasets.clear()
+            if hasattr(self._client, 'get_discovered_datasets'):
+                self._discovered_datasets.extend(self._client.get_discovered_datasets())
+                if self._discovered_datasets and self._log:
+                    self._log.info(f"发现 {len(self._discovered_datasets)} 个 DataSet: " +
+                        ", ".join(ds.get("ref", ds.get("name", "")) for ds in self._discovered_datasets))
 
         # 阶段4: 通知上层发现的测点
         if self._on_points_discovered:
@@ -321,6 +370,7 @@ class IEC61850ClientHandler(ClientHandler):
         self._connect_phase = self.PHASE_IDLE
         self._connect_progress = 0
         self._discovered_goose_items = []
+        self._discovered_datasets = []
         if self._client:
             self._client.disconnect()
         self._is_running = False
@@ -459,6 +509,23 @@ class IEC61850ClientHandler(ClientHandler):
                 frame_type=point.frame_type,
                 fc=fc,
             )
+
+    def get_discovered_datasets(self) -> List[Dict[str, Any]]:
+        """获取发现的 DataSet 列表"""
+        return list(self._discovered_datasets)
+
+    def read_dataset_values(self, dataset_ref: str) -> Dict[str, Any]:
+        """通过 DataSet 批量读取所有成员值
+
+        Args:
+            dataset_ref: DataSet 引用路径，如 "LD0/LLN0$dsGOOSE1"
+
+        Returns:
+            {fcda_ref: value} 字典
+        """
+        if not self._client or not self.is_running:
+            return {}
+        return self._client.read_dataset_values(dataset_ref)
 
     @property
     def client(self):

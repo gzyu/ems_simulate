@@ -71,19 +71,30 @@ class Iec61850DaChildrenRequest(BaseModel):
     do_name: str = Field("", description="数据对象名")
 
 
+class Iec61850DatasetDetailRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
+    dataset_ref: str = Field(..., description="DataSet 引用路径，如 LD0/LLN0$dsGOOSE1")
+
+
+class Iec61850DatasetReadRequest(BaseModel):
+    channel_id: int = Field(..., description="通道ID")
+    dataset_ref: str = Field(..., description="DataSet 引用路径，如 LD0/LLN0$dsGOOSE1")
+
+
 # ===== IEC 61850 树形数据常量 =====
 
 # 已知结构体 DA 的 BDA 子节点
+# q 和 t 在 MMS 映射中为单值 (Quality BitString / UTC_Time),
+# 不再展开为子 BDA 结构体。仅保留 origin 的 BDA 展开。
 KNOWN_STRUCT_DA_BDAS: Dict[str, List[str]] = {
-    "q": ["validity", "detailQuality", "source", "operatorBlocked", "test"],
-    "t": ["seconds", "fraction", "LeapSecondsKnown", "ClockedFailure", "ClockNotSynchronized", "TimeAccuracy"],
     "origin": ["orCat", "orIdent"],
 }
 
 # 每个 DO 应包含的标准 DA 列表 (后端自动补全)
+# q 和 t 是单值 DataAttribute, 非结构体
 STANDARD_DAS_FOR_DO: List[Dict[str, Any]] = [
-    {"name": "q", "fc": "MX", "is_struct": True},
-    {"name": "t", "fc": "MX", "is_struct": True},
+    {"name": "q", "fc": "MX", "is_struct": False},
+    {"name": "t", "fc": "MX", "is_struct": False},
     {"name": "dU", "fc": "DC", "is_struct": False},
 ]
 
@@ -136,6 +147,7 @@ def _build_iec61850_tree(
     item: str = "",
     point_name: str | None = None,
     point_types: List[int] | None = None,
+    device=None,
 ) -> Dict[str, Any]:
     """将扁平测点列表构建为 IEC 61850 树形结构
     
@@ -164,16 +176,12 @@ def _build_iec61850_tree(
                         "da_name": "q",
                         "da_path": "q",
                         "fc": "MX",
-                        "is_struct": true,
+                        "is_struct": false,
                         "point_code": "yyy",
                         "point_name": "品质",
                         "value": "0",
                         "status": "成功",
-                        "children": [         # BDA 子节点
-                            {"bda_name": "validity", "bda_path": "q.validity", "fc": "MX"},
-                            {"bda_name": "source", "bda_path": "q.source", "fc": "MX"},
-                            ...
-                        ]
+                        "children": []
                     },
                     ...
                 ]
@@ -188,11 +196,16 @@ def _build_iec61850_tree(
     if point_types is None:
         point_types = [0, 1, 2, 3]
 
+    # DataSets 分类: 从设备 handler 获取数据集成员信息
+    if category and category == "DataSets":
+        return _build_iec61850_dataset_tree(device, item)
+
     # category 过滤: 非 Data Model 分类 (如 GOOSE/Reports) 无 MMS 测点
     if category and category != "Data Model":
         return {"items": [], "total": 0}
 
     # 1. 收集所有测点, 构建 DO 分组
+
     do_map: Dict[str, Dict[str, Any]] = {}  # do_ref → {do_info, children_map}
 
     for point in all_points:
@@ -456,6 +469,7 @@ async def get_iec61850_tree_data(
             item=body.item,
             point_name=body.point_name,
             point_types=pt_filter,
+            device=device,
         )
 
         # DO 级分页
@@ -526,7 +540,8 @@ async def get_iec61850_structure(body: Iec61850StructureRequest, request: Reques
             except Exception as e:
                 log.warning(f"获取本机 GOOSE 状态失败: {e}")
 
-        # 如果是客户端设备，补充远端发现的 GOOSE 控制块
+        # 如果是客户端设备，补充远端发现的 GOOSE 控制块和 DataSet
+        dataset_items = []
         if device and hasattr(device, 'protocol_handler') and device.protocol_handler:
             protocol_handler = device.protocol_handler
             discovered_goose = getattr(protocol_handler, '_discovered_goose_items', None)
@@ -538,9 +553,49 @@ async def get_iec61850_structure(body: Iec61850StructureRequest, request: Reques
                     status = "已发现"
                     goose_items.append(f"远端GoCB: {cb_ref} ({status}, APPID={app_id_str})")
 
+            # 获取 DataSet 列表（含成员信息），按 LD > LN 组织层级
+            if hasattr(protocol_handler, 'get_discovered_datasets'):
+                discovered_datasets = protocol_handler.get_discovered_datasets()
+                log.info(f"get_discovered_datasets() 返回 {len(discovered_datasets)} 个 DataSet: "
+                    + ", ".join(f"{d.get('ld','')}/{d.get('ln','')}.{d.get('name','')}"
+                        for d in discovered_datasets))
+                # 构建 LD -> {LN -> [datasets]} 层级映射
+                ld_map: Dict[str, Dict[str, list]] = {}
+                for ds in discovered_datasets:
+                    ds_ld = ds.get("ld", "")
+                    ds_ln = ds.get("ln", "")
+                    if not ds_ld:
+                        continue
+                    if ds_ld not in ld_map:
+                        ld_map[ds_ld] = {}
+                    if ds_ln not in ld_map[ds_ld]:
+                        ld_map[ds_ld][ds_ln] = []
+                    ld_map[ds_ld][ds_ln].append({
+                        "ref": ds.get("ref", ""),
+                        "name": ds.get("name", ""),
+                        "ld": ds_ld,
+                        "ln": ds_ln,
+                        "member_count": ds.get("member_count", 0),
+                    })
+                # 转换为层级树: [{name: "LD0", children: [{name: "LLN0", datasets: [...]}]}]
+                for ld_name, ln_dict in sorted(ld_map.items()):
+                    ln_items = []
+                    for ln_name, ds_list in sorted(ln_dict.items()):
+                        ln_node = {
+                            "name": ln_name,
+                            "datasets": ds_list,
+                        }
+                        ln_items.append(ln_node)
+                    dataset_items.append({
+                        "name": ld_name,
+                        "children": ln_items,
+                    })
+
         structure = {
             "GOOSE": goose_items, "Reports": [], "SettingGroups": [],
-            "Files": [], "DataSets": [], "Data Model": data_model,
+            "Files": [],
+            "DataSets": dataset_items,
+            "Data Model": data_model,
         }
         return BaseResponse(message="获取 IEC61850 结构成功", data=structure)
     except Exception as e:
@@ -693,9 +748,166 @@ async def iec61850_read_points(
         return BaseResponse(code=500, message=f"IEC61850 读取测点失败: {e}", data={})
 
 
+def _build_iec61850_dataset_tree(device, dataset_ref: str) -> Dict[str, Any]:
+    """构建 DataSet 的树形结构（数据集成员作为 DA 列表）
+
+    Args:
+        device: 设备对象
+        dataset_ref: DataSet 引用路径
+
+    Returns:
+        与 _build_iec61850_tree 格式一致的树形结构
+    """
+    if not device or not dataset_ref:
+        return {"items": [], "total": 0}
+
+    # 已知结构体 DA 到完整叶子 DA 路径的映射（兼容旧数据或格式不规范的 FCDA ref）
+    _DA_PATH_AUTO_COMPLETE = {
+        "mag": "mag.f", "instMag": "instMag.f", "cVal": "cVal.mag.f",
+        "mxVal": "mxVal.f", "fCVal": "fCVal.mag.f",
+        "wVal": "wVal.f", "setMag": "setMag.f",
+        "Oper": "Oper.ctlVal", "SBOw": "SBOw.ctlVal",
+        "Cancel": "Cancel.ctlVal", "origin": "origin.orCat",
+    }
+
+    protocol_handler = getattr(device, 'protocol_handler', None)
+    if not protocol_handler:
+        return {"items": [], "total": 0}
+
+    # 获取 IEC61850 handler (客户端或服务端)
+    from src.device.protocol.iec61850_handler import IEC61850ClientHandler, IEC61850ServerHandler
+    is_client = isinstance(protocol_handler, IEC61850ClientHandler)
+    is_server = isinstance(protocol_handler, IEC61850ServerHandler)
+    if not is_client and not is_server:
+        return {"items": [], "total": 0}
+
+    # 从 handler 获取已发现的 DataSet 列表
+    if not hasattr(protocol_handler, 'get_discovered_datasets'):
+        return {"items": [], "total": 0}
+    discovered_datasets = protocol_handler.get_discovered_datasets()
+
+    matched_ds = None
+    for ds in discovered_datasets:
+        if ds.get("ref") == dataset_ref:
+            matched_ds = ds
+            break
+
+    # 按 ref 匹配不到时，尝试按 name 匹配（兼容前端用 name 作为 item 的场景）
+    if not matched_ds:
+        for ds in discovered_datasets:
+            if ds.get("name") == dataset_ref:
+                matched_ds = ds
+                break
+
+    if not matched_ds:
+        return {"items": [], "total": 0}
+
+    members = matched_ds.get("members", [])
+
+    # 读取 DataSet 所有值
+    values = {}
+    if hasattr(protocol_handler, 'read_dataset_values'):
+        values = protocol_handler.read_dataset_values(dataset_ref)
+
+    # 记录读取时间（用于前端显示"最后更新时间"）
+    import datetime
+    read_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 按 DO 分组构建树
+    do_map: Dict[str, Dict[str, Any]] = {}
+    for member in members:
+        ref = member.get("ref", "")
+        fc = member.get("fc", "MX")
+        value = values.get(ref, None)
+
+        # 从 FCDA 引用中解析 DO/DA
+        # 格式: "LD0/MMXU1.TotW.mag.f"
+        ld = ""
+        ln = ""
+        do_name = ""
+        da_path = ""
+        do_ref = ""
+        if "/" in ref:
+            parts = ref.split("/", 1)
+            ld = parts[0]
+            remaining = parts[1]
+            dot_idx = remaining.find(".")
+            if dot_idx >= 0:
+                ln = remaining[:dot_idx]
+                path_part = remaining[dot_idx + 1:]
+                first_dot = path_part.find(".")
+                if first_dot >= 0:
+                    do_name = path_part[:first_dot]
+                    da_path = path_part[first_dot + 1:]
+                    do_ref = f"{ld}/{ln}.{do_name}"
+                else:
+                    do_name = path_part
+                    do_ref = f"{ld}/{ln}.{do_name}"
+            else:
+                do_name = remaining
+                do_ref = ref
+
+        # 自动补全 DA 路径（兼容旧数据：FCDA 可能只给到顶级 DA 名如 "mag" 而非完整路径 "mag.f"）
+        if da_path:
+            if da_path in _DA_PATH_AUTO_COMPLETE:
+                da_path = _DA_PATH_AUTO_COMPLETE[da_path]
+        else:
+            # 无 DA 路径（如 ref 中不含 "."），直接使用 ref 作为 DO 标识
+            do_name = ref
+            do_ref = ref
+
+        # 推断 frame_type
+        frame_type = 0
+        if da_path == "stVal":
+            frame_type = 1
+        elif da_path in ("ctlVal", "Oper.ctlVal"):
+            frame_type = 2
+        elif da_path in ("setVal", "setVal.f"):
+            frame_type = 3
+
+        # 构建 DO 分组
+        if do_ref not in do_map:
+            do_map[do_ref] = {
+                "do_name": do_name,
+                "do_ref": do_ref,
+                "ld": ld,
+                "ln": ln,
+                "du_name": "",
+                "fc": fc,
+                "frame_type": frame_type,
+                "children": [],
+            }
+
+        # 构建 DA 节点
+        da_item = {
+            "da_name": da_path if da_path else do_name,
+            "da_path": da_path if da_path else do_name,
+            "fc": fc,
+            "is_struct": False,
+            "point_code": ref,
+            "point_name": da_path if da_path else do_name,
+            "value": str(value) if value is not None else "",
+            "status": "成功" if value is not None else "未知",
+            "读取时间": read_time,
+            "children": [],
+        }
+
+        # 检查是否已存在同名 DA
+        existing_da_names = {d["da_name"] for d in do_map[do_ref]["children"]}
+        if da_item["da_name"] not in existing_da_names:
+            do_map[do_ref]["children"].append(da_item)
+
+    items = sorted(do_map.values(), key=lambda x: x["do_ref"])
+    return {"items": items, "total": len(items)}
+
+
 def _get_iec61850_filtered_points(device, category: str, item: str) -> list[BasePoint]:
     """根据 IEC61850 树节点的 category 和 item 获取过滤后的测点对象列表"""
     from src.enums.point_data import Yc, Yx, Yk, Yt
+
+    # DataSets 分类: 返回空(数据集不包含内部测点)
+    if category and category == "DataSets":
+        return []
 
     # GOOSE/Reports 等非 Data Model 分类没有 MMS 测点
     if category and category != "Data Model":
@@ -885,3 +1097,76 @@ async def iec61850_write_single_point(
     except Exception as e:
         log.error(f"IEC61850 单点写入失败: {e}")
         return BaseResponse(code=500, message=f"IEC61850 单点写入失败: {e}", data={})
+
+
+@router.post("/iec61850-dataset-detail", response_model=BaseResponse)
+async def get_iec61850_dataset_detail(
+    body: Iec61850DatasetDetailRequest,
+    request: Request,
+):
+    """获取 IEC61850 DataSet 的详细信息（成员列表及当前值）"""
+    try:
+        channel = ChannelService.get_channel_by_id(body.channel_id)
+        if not channel:
+            return BaseResponse(code=404, message="通道不存在", data={})
+
+        protocol_type = channel.get("protocol_type", -1)
+        if protocol_type != 4:
+            return BaseResponse(code=400, message="该通道不是 IEC61850 协议", data={})
+
+        device_controller = request.app.state.device_controller
+        device = device_controller.get_device_by_channel_id(body.channel_id)
+        if not device:
+            return BaseResponse(code=404, message="设备未找到", data={})
+
+        from src.device.protocol.iec61850_handler import IEC61850ClientHandler, IEC61850ServerHandler
+        protocol_handler = getattr(device, 'protocol_handler', None)
+        is_iec61850 = isinstance(protocol_handler, (IEC61850ClientHandler, IEC61850ServerHandler))
+        if not is_iec61850:
+            return BaseResponse(code=400, message="仅 IEC61850 协议支持 DataSet 操作", data={})
+
+        # 从发现的 DataSet 中查找匹配项（含成员列表）
+        if not hasattr(protocol_handler, 'get_discovered_datasets'):
+            return BaseResponse(code=400, message="该处理器不支持 DataSet", data={})
+        discovered_datasets = protocol_handler.get_discovered_datasets()
+        matched_ds = None
+        for ds in discovered_datasets:
+            if ds.get("ref") == body.dataset_ref:
+                matched_ds = ds
+                break
+
+        if not matched_ds:
+            # 如果不在已发现列表中，尝试客户端浏览目录
+            if isinstance(protocol_handler, IEC61850ClientHandler) and hasattr(protocol_handler.client, 'browse_dataset_directory'):
+                members = protocol_handler.client.browse_dataset_directory(body.dataset_ref)
+                matched_ds = {
+                    "ref": body.dataset_ref,
+                    "name": body.dataset_ref.split("$")[-1] if "$" in body.dataset_ref else body.dataset_ref,
+                    "member_count": len(members),
+                    "members": members,
+                }
+
+        if not matched_ds:
+            return BaseResponse(code=404, message="DataSet 未找到，请先连接设备获取结构", data={})
+
+        # 读取 DataSet 所有成员的值
+        values = {}
+        if hasattr(protocol_handler, 'read_dataset_values'):
+            values = protocol_handler.read_dataset_values(body.dataset_ref)
+
+        # 将值合并到成员列表
+        members = matched_ds.get("members", [])
+        for member in members:
+            ref = member.get("ref", "")
+            member["value"] = values.get(ref, None)
+
+        return BaseResponse(message="获取 DataSet 详情成功", data={
+            "ref": matched_ds.get("ref", ""),
+            "name": matched_ds.get("name", ""),
+            "ld": matched_ds.get("ld", ""),
+            "member_count": len(members),
+            "members": members,
+        })
+    except Exception as e:
+        log.error(f"获取 DataSet 详情失败: {e}")
+        return BaseResponse(code=500, message=f"获取 DataSet 详情失败: {e}", data={})

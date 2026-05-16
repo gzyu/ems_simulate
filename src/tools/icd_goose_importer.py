@@ -42,6 +42,23 @@ from src.data.log import log
 # IEC 61850 SCL 命名空间
 SCL_NS = "http://www.iec.ch/61850/2003/SCL"
 
+# 已知结构体 DA 到完整叶子 DA 路径的映射
+# ICD 文件的 FCDA 中 daName 只给出顶级 DA 名（如 "mag"），
+# 但 MMS 引用需要完整路径（如 "mag.f"），用于值读取和树形展示
+_KNOWN_STRUCT_DA_TO_FULL_PATH = {
+    "mag": "mag.f",              # MV CDC: 浮点测量值
+    "instMag": "instMag.f",      # SAV CDC: 瞬时测量值
+    "cVal": "cVal.mag.f",        # CMV CDC: 复数测量值
+    "mxVal": "mxVal.f",          # 某些实现
+    "fCVal": "fCVal.mag.f",      # 复数浮点
+    "wVal": "wVal.f",            # 设定值
+    "setMag": "setMag.f",        # 设定幅值
+    "Oper": "Oper.ctlVal",       # SPC/DPC CDC: 操作
+    "SBOw": "SBOw.ctlVal",       # SBO 带值
+    "Cancel": "Cancel.ctlVal",   # 取消操作
+    "origin": "origin.orCat",    # Origin 结构体
+}
+
 
 class GooseGseControlInfo:
     """GSEControl 解析结果"""
@@ -104,6 +121,7 @@ class GooseGseControlInfo:
                 "name": member.get("fcda_ref", ""),
                 "value": self._default_value_for_type(iec_type),
                 "iec_type": iec_type,
+                "fc": member.get("fc", ""),
             })
 
         return {
@@ -206,6 +224,8 @@ class IcdGooseImporter:
         self._gse_address_map: Dict[str, List[Dict[str, Any]]] = {}
         # (ied_name, ld_inst, ln_class, ln_inst, ln_prefix) -> [DataSet]
         self._dataset_map: Dict[Tuple, List[ET.Element]] = {}
+        # 未被 GSEControl 引用的纯 DataSet（无 GOOSE 发布）
+        self._pure_datasets: List[Dict[str, Any]] = []
 
     def _tag(self, name: str) -> str:
         """根据检测到的命名空间构造完整 tag"""
@@ -361,13 +381,44 @@ class IcdGooseImporter:
                         if ds_name:
                             dataset_by_name[ds_name] = ds
 
-                    # 解析 GSEControl
+                    # 解析 GSEControl，并记录已引用的 DataSet 名称
+                    referenced_datasets: set = set()
                     for gse_ctrl in ln0.findall(self._tag("GSEControl")):
                         info = self._parse_gse_control(
                             gse_ctrl, ied_name, ld_inst, ln0, dataset_by_name
                         )
                         if info:
                             self._gse_controls.append(info)
+                            if info.dat_set:
+                                referenced_datasets.add(info.dat_set)
+
+                    # 收集未被任何 GSEControl 引用的纯 DataSet
+                    for ds_name, ds_elem in dataset_by_name.items():
+                        if ds_name not in referenced_datasets:
+                            pure_ds_members = self._parse_dataset(ds_elem, ld_inst)
+                            # 构建 data_set_ref: "CTMP01/LLN0$dsRack1CellTemp"
+                            ln_name = self._build_ln_name(
+                                ln0.get("prefix", ""), ln0.get("lnClass", "LLN0"), ln0.get("inst", "")
+                            )
+                            ds_ref = f"{ld_inst}/{ln_name}${ds_name}"
+                            entries = []
+                            for m in pure_ds_members:
+                                iec_type = GooseGseControlInfo._fcda_to_iec_type(m)
+                                default_val = GooseGseControlInfo._default_value_for_type(iec_type)
+                                entries.append({
+                                    "name": m.get("fcda_ref", ""),
+                                    "value": default_val,
+                                    "iec_type": iec_type,
+                                    "fc": m.get("fc", ""),
+                                })
+                            self._pure_datasets.append({
+                                "ld_inst": ld_inst,
+                                "ds_name": ds_name,
+                                "ds_ref": ds_ref,
+                                "data_set_ref": ds_ref,
+                                "member_count": len(pure_ds_members),
+                                "entries": entries,
+                            })
 
     def _parse_gse_control(
         self,
@@ -437,6 +488,24 @@ class IcdGooseImporter:
                 info.max_time = gse.get("max_time", 1000)
                 return
 
+    @staticmethod
+    def _expand_da_path(da_name: str) -> str:
+        """将 ICD FCDA 中的顶级 DA 名展开为完整的叶子 DA 路径
+
+        ICD 文件的 FCDA 通常只给出顶级 DA 名称（如 "mag"），
+        但 MMS 引用需要完整路径（如 "mag.f"）。
+        对于已知的结构体 DA 进行自动补全，未知的保持原样。
+
+        Args:
+            da_name: ICD 文件中的 daName 属性值
+
+        Returns:
+            补全后的 DA 路径
+        """
+        if not da_name:
+            return da_name
+        return _KNOWN_STRUCT_DA_TO_FULL_PATH.get(da_name, da_name)
+
     def _parse_dataset(self, ds_elem: ET.Element, ld_inst: str) -> List[Dict[str, str]]:
         """解析 DataSet 中的 FCDA 元素"""
         members = []
@@ -447,7 +516,7 @@ class IcdGooseImporter:
                 "ln_inst": fcda.get("lnInst", ""),
                 "ln_prefix": fcda.get("prefix", ""),
                 "do_name": fcda.get("doName", ""),
-                "da_name": fcda.get("daName", ""),
+                "da_name": self._expand_da_path(fcda.get("daName", "")),
                 "fc": fcda.get("fc", ""),
             }
 
@@ -466,6 +535,21 @@ class IcdGooseImporter:
             members.append(member)
 
         return members
+
+    def get_pure_datasets(self) -> List[Dict[str, Any]]:
+        """获取未被 GSEControl 引用的纯 DataSet 列表
+
+        Returns:
+            [{
+                "ld_inst": str,       # 逻辑设备实例名
+                "ds_name": str,        # DataSet 名称
+                "ds_ref": str,         # DataSet 引用路径
+                "data_set_ref": str,
+                "member_count": int,
+                "entries": [{"name", "value", "iec_type"}]
+            }]
+        """
+        return list(self._pure_datasets)
 
     def get_import_summary(self) -> Dict[str, Any]:
         """获取解析摘要"""
@@ -513,5 +597,6 @@ def import_goose_from_icd(file_path: str, interface: str = "eth0") -> Dict[str, 
     return {
         "publishers": publishers,
         "subscriptions": subscriptions,
+        "pure_datasets": importer.get_pure_datasets(),
         "summary": importer.get_import_summary(),
     }

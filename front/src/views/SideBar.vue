@@ -16,6 +16,7 @@
 
       <!-- 3. 设备组树形菜单 -->
       <SideNavTree
+        :key="treeKey"
         :tree-data="treeData"
         :tree-props="treeProps"
         :expanded-keys="expandedKeys"
@@ -125,6 +126,7 @@ const copyingDevicePort = ref<number>(502);
 const copyingPointCount = ref<number>(0);
 
 const treeData = ref<TreeNode[]>([]);
+const treeKey = ref(0);  // 递增计数，强制 el-tree 重建
 const ungroupedDevices = ref<DeviceInfo[]>([]);
 const expandedKeys = ref<string[]>([]);
 const currentNodeKey = ref<string>('');
@@ -132,7 +134,12 @@ const currentDeviceName = ref<string>('');
 const ungroupedExpanded = ref(true);
 
 // IEC61850 设备树 composable
-const { iec61850UngroupedMap, fetchIEC61850Structure, markIEC61850Devices, markUngroupedIEC61850Devices } = useIec61850Tree();
+const { iec61850UngroupedMap, fetchIEC61850Structure, markIEC61850Devices, markUngroupedIEC61850Devices, setStructureLoadedCallback } = useIec61850Tree();
+
+// IEC61850 结构加载完成后强制重建 el-tree
+setStructureLoadedCallback(() => {
+  treeKey.value++;
+});
 
 // 侧边栏刷新触发器
 const { refreshCounter } = useSidebarRefresh();
@@ -268,6 +275,10 @@ const handleNodeClick = (data: TreeNode) => {
     // data.type 是分类 (如 "Data Model")，data.value 是完整过滤路径 (如 "GenericLD/MMXU1")
     const deviceName = data.deviceName || data.name;
     const category = data.type || (data.isGroup ? data.name : '');
+    // DataSets 下的分组节点(LD/LN)只做展开/折叠，不做导航
+    if (category === 'DataSets' && data.isGroup) {
+      return;
+    }
     // 优先使用 value (Data Model 下 LN 节点的完整路径)，其次使用 name
     const item = data.isGroup ? '' : (data.value || data.name || data.label);
     navigateToDevice(deviceName, false, data.isIec61850Child, { ...data, _category: category, _item: item });
