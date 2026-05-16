@@ -76,6 +76,8 @@ class YtService:
         if protocol_type in [
             ProtocolType.ModbusTcp,
             ProtocolType.ModbusRtu,
+            ProtocolType.ModbusRtuClient,
+            ProtocolType.ModbusRtuServer,
             ProtocolType.ModbusRtuOverTcp,
             ProtocolType.ModbusTcpClient,
             ProtocolType.ModbusUdp,

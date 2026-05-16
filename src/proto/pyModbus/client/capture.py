@@ -22,7 +22,7 @@ class ModbusTcpClientWithCapture(ModbusTcpClient):
         super().__init__(host=host, port=port, framer=FramerType.SOCKET, **kwargs)
         self.message_capture = message_capture
 
-    def execute(self, request: ModbusPDU):
+    def execute(self, no_response_expected: bool, request: ModbusPDU):
         # 构造PDU（功能码 + 数据）
         try:
             pdu = bytes([request.function_code]) + request.encode()
@@ -54,7 +54,7 @@ class ModbusTcpClientWithCapture(ModbusTcpClient):
             pass
 
         # 执行请求
-        response = super().execute(request)
+        response = super().execute(no_response_expected, request)
 
         # 处理响应
         try:
@@ -83,7 +83,7 @@ class ModbusSerialClientWithCapture(ModbusSerialClient):
         super().__init__(port=port, baudrate=baudrate, bytesize=bytesize, parity=parity, stopbits=stopbits, framer=FramerType.RTU)
         self.message_capture = message_capture
 
-    def execute(self, request: ModbusPDU):
+    def execute(self, no_response_expected: bool, request: ModbusPDU):
         # 构造 RTU 报文: Slave ID + PDU + CRC
         try:
             pdu = bytes([request.function_code]) + request.encode()
@@ -105,7 +105,7 @@ class ModbusSerialClientWithCapture(ModbusSerialClient):
             pass
 
         # 执行请求
-        response = super().execute(request)
+        response = super().execute(no_response_expected, request)
 
         # 处理响应
         try:
@@ -132,7 +132,7 @@ class ModbusRtuOverTcpClientWithCapture(ModbusTcpClient):
         super().__init__(host=host, port=port, framer=FramerType.RTU)
         self.message_capture = message_capture
 
-    def execute(self, request: ModbusPDU):
+    def execute(self, no_response_expected: bool, request: ModbusPDU):
         # 构造 RTU Over TCP 报文 (同 RTU)
         try:
             pdu = bytes([request.function_code]) + request.encode()
@@ -152,7 +152,7 @@ class ModbusRtuOverTcpClientWithCapture(ModbusTcpClient):
             pass
 
         # 执行请求
-        response = super().execute(request)
+        response = super().execute(no_response_expected, request)
 
         # 处理响应
         try:

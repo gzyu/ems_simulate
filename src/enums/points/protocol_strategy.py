@@ -165,6 +165,8 @@ def get_protocol_strategy(protocol_type: str) -> ProtocolStrategy:
     strategy_map = {
         "ModbusTcp": ModbusStrategy(),
         "ModbusRtu": ModbusStrategy(),
+        "ModbusRtuClient": ModbusStrategy(),
+        "ModbusRtuServer": ModbusStrategy(),
         "ModbusRtuOverTcp": ModbusStrategy(),
         "ModbusTcpClient": ModbusStrategy(),
         "Iec104Server": IEC104Strategy(),

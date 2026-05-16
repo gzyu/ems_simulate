@@ -82,6 +82,9 @@ class GeneralDeviceBuilder:
     def initModbusSerialServer(self) -> None:
         self.general_device.initModbusSerialServer()
 
+    def initModbusSerialClient(self) -> None:
+        self.general_device.initModbusSerialClient()
+
     def initIec104Server(self) -> None:
         self.general_device.initIec104Server()
 
@@ -127,7 +130,9 @@ class GeneralDeviceBuilder:
             return self.generalDeviceModbusTcp
         elif protocol_type == ProtocolType.ModbusTcpClient:
             return self.generalDeviceModbusTcpClient
-        elif protocol_type == ProtocolType.ModbusRtu:
+        elif protocol_type == ProtocolType.ModbusRtuClient:
+            return self.generalDeviceSerialClient
+        elif protocol_type in [ProtocolType.ModbusRtu, ProtocolType.ModbusRtuServer]:
             return self.generalDeviceSerial
         elif protocol_type == ProtocolType.Iec104Server:
             return self.generalDeviceIec104Server
@@ -193,6 +198,15 @@ class GeneralDeviceBuilder:
         self.setDeviceName(name=self.device_name)
         self.importDataPoints()
         self.initModbusSerialServer()
+        self.general_device.setSpecialDataPointValues()
+        return self.general_device
+
+    @property
+    def generalDeviceSerialClient(self) -> Device:
+        self.setDeviceId(self.device_id)
+        self.setDeviceName(name=self.device_name)
+        self.importDataPoints()
+        self.initModbusSerialClient()
         self.general_device.setSpecialDataPointValues()
         return self.general_device
 

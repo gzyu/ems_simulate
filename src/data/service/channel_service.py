@@ -61,7 +61,7 @@ class ChannelService:
         # 串口主站（客户端模式 - 主动采集）
         if conn_type == 0:
             if protocol == 0:
-                return ProtocolType.ModbusRtu  # Modbus RTU 主站
+                return ProtocolType.ModbusRtuClient  # Modbus RTU 主站（客户端）
             elif protocol == 3:
                 return ProtocolType.Dlt645Client  # DLT645 主站采集电表
 
@@ -90,7 +90,7 @@ class ChannelService:
         # 串口从站（服务端模式 - 被采集）
         elif conn_type == 3:
             if protocol == 0:
-                return ProtocolType.ModbusRtu  # Modbus RTU 从站（目前共用同一类型）
+                return ProtocolType.ModbusRtuServer  # Modbus RTU 从站（服务端）
             elif protocol == 3:
                 return ProtocolType.Dlt645Server  # DLT645 从站模拟电表
 

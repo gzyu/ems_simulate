@@ -69,6 +69,8 @@ class YxService:
             ProtocolType.ModbusTcp,
             ProtocolType.ModbusTcpClient,
             ProtocolType.ModbusRtu,
+            ProtocolType.ModbusRtuClient,
+            ProtocolType.ModbusRtuServer,
             ProtocolType.ModbusRtuOverTcp,
         ]:
             return Yx(

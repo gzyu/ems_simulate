@@ -141,6 +141,8 @@ class Device:
         handler_map = {
             ProtocolType.ModbusTcp: lambda: ModbusServerHandler(self.log),
             ProtocolType.ModbusRtu: lambda: ModbusServerHandler(self.log),
+            ProtocolType.ModbusRtuServer: lambda: ModbusServerHandler(self.log),
+            ProtocolType.ModbusRtuClient: lambda: ModbusClientHandler(self.log),
             ProtocolType.ModbusRtuOverTcp: lambda: ModbusServerHandler(self.log),
             ProtocolType.ModbusTcpClient: lambda: ModbusClientHandler(self.log),
             ProtocolType.Iec104Server: lambda: IEC104ServerHandler(self.log),
@@ -204,7 +206,12 @@ class Device:
 
     def initModbusSerialServer(self) -> None:
         """初始化 Modbus RTU 服务器（串口）"""
-        self.protocol_type = ProtocolType.ModbusRtu
+        self.protocol_type = ProtocolType.ModbusRtuServer
+        self.initProtocol()
+
+    def initModbusSerialClient(self) -> None:
+        """初始化 Modbus RTU 客户端（串口主站）"""
+        self.protocol_type = ProtocolType.ModbusRtuClient
         self.initProtocol()
 
     def initIec104Server(self) -> None:
@@ -658,6 +665,7 @@ class Device:
         # Determine if we should mask errors (only for Client devices)
         mask_error = self.protocol_type in [
             ProtocolType.ModbusTcpClient,
+            ProtocolType.ModbusRtuClient,
             ProtocolType.Iec104Client,
             ProtocolType.Dlt645Client,
             ProtocolType.Iec61850Client,

@@ -138,6 +138,8 @@ def get_default_protocol_config(protocol_type: str) -> Optional[Any]:
     config_map = {
         "ModbusTcp": ModbusConfig(),
         "ModbusRtu": ModbusConfig(),
+        "ModbusRtuClient": ModbusConfig(),
+        "ModbusRtuServer": ModbusConfig(),
         "ModbusRtuOverTcp": ModbusConfig(),
         "ModbusTcpClient": ModbusConfig(),
         "Iec104Server": IEC104Config(),
@@ -152,7 +154,7 @@ def get_default_protocol_config(protocol_type: str) -> Optional[Any]:
 
 def create_protocol_config(protocol_type: str, data: Dict[str, Any]) -> Optional[Any]:
     """根据协议类型和数据创建配置对象"""
-    if protocol_type in ["ModbusTcp", "ModbusRtu", "ModbusRtuOverTcp", "ModbusTcpClient"]:
+    if protocol_type in ["ModbusTcp", "ModbusRtu", "ModbusRtuClient", "ModbusRtuServer", "ModbusRtuOverTcp", "ModbusTcpClient"]:
         return ModbusConfig.from_dict(data)
     elif protocol_type in ["Iec104Server", "Iec104Client"]:
         return IEC104Config.from_dict(data)

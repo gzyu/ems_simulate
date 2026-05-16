@@ -101,7 +101,7 @@ class ModbusClient:
                     timeout=1.0,
                     retries=1
                 )
-            elif self.protocol_type == ProtocolType.ModbusRtu:
+            elif self.protocol_type in (ProtocolType.ModbusRtu, ProtocolType.ModbusRtuClient):
                 self.client = ModbusSerialClientWithCapture(
                     port=self.serial_port,
                     baudrate=self.baudrate,
@@ -165,7 +165,7 @@ class ModbusClient:
             raise ConnectionError("Client not connected to server")
 
         try:
-            response = self.client.read_coils(address, count, device_id=slave_id)
+            response = self.client.read_coils(address, count=count, device_id=slave_id)
             if not response.isError():
                 return response.bits[:count]
             else:
@@ -199,7 +199,7 @@ class ModbusClient:
             raise ConnectionError("Client not connected to server")
 
         try:
-            response = self.client.read_discrete_inputs(address, count, device_id=slave_id)
+            response = self.client.read_discrete_inputs(address, count=count, device_id=slave_id)
             if not response.isError():
                 return response.bits[:count]
             else:
@@ -242,7 +242,7 @@ class ModbusClient:
                 self.log.debug(f"读取保持寄存器: slave={slave_id}, addr={address}, count={count}")
             
             response = self.client.read_holding_registers(
-                address, count, device_id=slave_id
+                address, count=count, device_id=slave_id
             )
             if not response.isError():
                 return response.registers
@@ -280,7 +280,7 @@ class ModbusClient:
                 print("Client not connected to server")
 
         try:
-            response = self.client.read_input_registers(address, count, device_id=slave_id)
+            response = self.client.read_input_registers(address, count=count, device_id=slave_id)
             if not response.isError():
                 return response.registers
             else:

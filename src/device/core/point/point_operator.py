@@ -27,6 +27,8 @@ _MODBUS_PROTOCOLS = frozenset({
     ProtocolType.ModbusTcpClient,
     ProtocolType.ModbusTcp,
     ProtocolType.ModbusRtu,
+    ProtocolType.ModbusRtuClient,
+    ProtocolType.ModbusRtuServer,
     ProtocolType.ModbusRtuOverTcp,
     ProtocolType.ModbusUdp,
 })

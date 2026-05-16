@@ -112,7 +112,7 @@ class SimulationController:
         log.info(f"模拟线程启动, 模拟测点个数: {len(self.points)}")
         # 获取设备本地地址信息
         from src.enums.modbus_def import ProtocolType
-        if self.device.protocol_type in (ProtocolType.ModbusRtu, ProtocolType.ModbusRtuOverTcp):
+        if self.device.protocol_type in (ProtocolType.ModbusRtu, ProtocolType.ModbusRtuClient, ProtocolType.ModbusRtuServer, ProtocolType.ModbusRtuOverTcp):
             local_addr = self.device.serial_port or "未知串口"
         else:
             local_addr = f"{self.device.ip}:{self.device.port}"

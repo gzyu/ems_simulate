@@ -133,7 +133,7 @@ const slaveRef = ref<any>(null);
 
 const isSerialMode = computed(() => {
   const type = communicationType.value;
-  return type && (type.includes('Dlt645') || type === 'ModbusRtu') && serialPort.value;
+  return type && (type.includes('Dlt645') || type.startsWith('ModbusRtu')) && serialPort.value;
 });
 
 const isClientDevice = computed(() => {

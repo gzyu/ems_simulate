@@ -271,7 +271,7 @@ class ModbusServer:
                     framer=framer_key,
                     **common_params,
                 )
-            elif self.protocol_type == ProtocolType.ModbusRtu:
+            elif self.protocol_type in (ProtocolType.ModbusRtu, ProtocolType.ModbusRtuServer):
                 serial_params = {
                     "port": self.serial_port,
                     "baudrate": self.baudrate,

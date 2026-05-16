@@ -2,7 +2,9 @@ from enum import Enum
 
 
 class ProtocolType(Enum):
-    ModbusRtu = "ModbusRtu"
+    ModbusRtu = "ModbusRtu"            # 串口从站（向后兼容）
+    ModbusRtuClient = "ModbusRtuClient"  # 串口主站（主动采集）
+    ModbusRtuServer = "ModbusRtuServer"  # 串口从站（被动响应）
     ModbusTcp = "ModbusTcp"
     ModbusTcpClient = "ModbusTcpClient"
     ModbusUdp = "ModbusUdp"

@@ -27,7 +27,7 @@ async def edit_point_data(req: PointEditDataRequest, request: Request):
     """修改测点数据"""
     try:
         device = _get_device(req.device_name, request)
-        if device.protocol_type in (ProtocolType.ModbusRtu, ProtocolType.ModbusRtuOverTcp):
+        if device.protocol_type in (ProtocolType.ModbusRtu, ProtocolType.ModbusRtuClient, ProtocolType.ModbusRtuServer, ProtocolType.ModbusRtuOverTcp):
             client_info = device.serial_port or "未知串口"
         else:
             client_info = f"{device.ip}:{device.port}"

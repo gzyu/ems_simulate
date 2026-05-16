@@ -119,4 +119,4 @@ export const FUNC_CODE_TOOLTIP = '01:读线圈(可读写→05写) 02:读离散�
 
 // ===== 客户端协议标识 =====
 
-export const CLIENT_PROTOCOL_NAMES = ['ModbusTcpClient', 'Iec104Client', 'Dlt645Client', 'Iec61850Client'] as const;
+export const CLIENT_PROTOCOL_NAMES = ['ModbusTcpClient', 'ModbusRtuClient', 'Iec104Client', 'Dlt645Client', 'Iec61850Client'] as const;

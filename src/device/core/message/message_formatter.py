@@ -27,6 +27,8 @@ _MODBUS_TCP_TYPES = {
 # Modbus RTU 类协议类型集合
 _MODBUS_RTU_TYPES = {
     ProtocolType.ModbusRtu,
+    ProtocolType.ModbusRtuClient,
+    ProtocolType.ModbusRtuServer,
     ProtocolType.ModbusRtuOverTcp,
 }
 
